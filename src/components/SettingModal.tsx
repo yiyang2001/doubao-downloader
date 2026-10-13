@@ -107,6 +107,7 @@ function SettingModal({ isOpenSetting, onCloseSetting }: SettingModalProps) {
   const panelShortcut = getSetting("panel_shortcut");
   const autoSelectCurrentConv = getSetting("auto_select_current_conv");
   const autoLoadHistory = getSetting("auto_load_history");
+  const onlyCurrentConv = getSetting("only_current_conv");
 
   const customFilenameTemplateLocal = useSetting(customFilenameTemplate, changeSetting);
   const zipFilenameTemplateLocal = useSetting(zipFilenameTemplate, changeSetting);
@@ -244,6 +245,11 @@ function SettingModal({ isOpenSetting, onCloseSetting }: SettingModalProps) {
 
           <TabPane itemKey="general" tab="通用">
             <div className="dd-setting-content">
+              <SettingRow
+                control={<Switch aria-label={onlyCurrentConv.label} checked={onlyCurrentConv.value} onChange={(checked) => changeSetting(onlyCurrentConv, checked)} />}
+                description="只保留当前所在对话的图片和视频，其它对话和「我的创作」都不捕获；切换对话后会清掉上一个对话的内容"
+                label={onlyCurrentConv.label}
+              />
               <SettingRow
                 control={<Switch aria-label={autoSelectCurrentConv.label} checked={autoSelectCurrentConv.value} onChange={(checked) => changeSetting(autoSelectCurrentConv, checked)} />}
                 description="打开面板时把对话筛选切换到当前所在的对话"

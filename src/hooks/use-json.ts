@@ -4,6 +4,7 @@ import type { ConvMessage } from "@/types";
 interface UseJsonProps {
   showRaw?: boolean;
   enable15sVideo?: boolean;
+  onlyCurrentConv?: boolean;
   onUpdateVideoDurationSuccess?: () => void;
   onUpdateVideoDurationError?: (error: unknown) => void;
   callback: (messages: ConvMessage[]) => void;
@@ -210,6 +211,7 @@ export function isAispaceResponse(data: any): boolean {
 
 const SHOW_RAW_CACHE_KEY = "doubao-downloader:show_raw";
 const ENABLE_15S_VIDEO_CACHE_KEY = "doubao-downloader:enable_15s_video";
+const ONLY_CURRENT_CONV_CACHE_KEY = "doubao-downloader:only_current_conv";
 
 function readCachedSetting(key: string, fallback: boolean) {
   try {
@@ -233,6 +235,8 @@ const hook = {
   installed: false,
   showRaw: true,
   enable15sVideo: false,
+  // 只捕获地址栏所在的会话，其它会话和「我的创作」一律忽略
+  onlyCurrentConv: false,
   onUpdateVideoDurationSuccess: undefined as (() => void) | undefined,
   onUpdateVideoDurationError: undefined as ((error: unknown) => void) | undefined,
   listener: undefined as ((messages: ConvMessage[]) => void) | undefined,
@@ -254,6 +258,22 @@ function getConversationIdFromUrl() {
   return window.location.pathname.match(/\/chat\/(\d+)/)?.[1];
 }
 
+// 被忽略的消息不能记进已见集合，否则之后切到那个会话时就再也捕获不到了
+function isForeignConv(conversationId: unknown) {
+  return hook.onlyCurrentConv && String(conversationId ?? "") !== getConversationIdFromUrl();
+}
+
+/** 丢弃已捕获的消息后调用，让它们之后还能被重新捕获。 */
+export function forgetCaptured(messages: ConvMessage[]) {
+  for (const message of messages) {
+    if (message.source === "aispace") {
+      hook.aispaceNodeIds.delete(message.bot_reply_message_id);
+    } else {
+      hook.messageIds.delete(message.message_id);
+    }
+  }
+}
+
 function capture(text: string, jsonData: any) {
   const showRaw = hook.showRaw;
   const aispaceChildren = jsonData?.data?.children;
@@ -266,6 +286,7 @@ function capture(text: string, jsonData: any) {
   let messageList = findAllKeysInJson(jsonData, "messages");
   const newConv: ConvMessage[] = [];
   if (isAispace) {
+    if (hook.onlyCurrentConv) return;
     const newChildren = aispaceChildren.filter((child: any) => {
       const nodeId = String(child?.id || "");
       if (!nodeId || hook.aispaceNodeIds.has(nodeId)) return false;
@@ -292,7 +313,7 @@ function capture(text: string, jsonData: any) {
         baseInfo,
         showRaw,
       });
-      newConv.push(...extracted);
+      if (!isForeignConv(conversation_id)) newConv.push(...extracted);
     }
   } else {
     messageList.map((messages) =>
@@ -300,7 +321,7 @@ function capture(text: string, jsonData: any) {
         // 消息ID
         let creationList = findAllKeysInJson(message, "creations");
         const message_id = message.message_id;
-        if (!hook.messageIds.has(message_id)) {
+        if (!isForeignConv(message.conversation_id) && !hook.messageIds.has(message_id)) {
           hook.messageIds.add(message_id);
 
           const baseInfo: Partial<ConvMessage> = {
@@ -344,6 +365,7 @@ export function installJsonHook() {
   hook.installed = true;
   hook.showRaw = readCachedSetting(SHOW_RAW_CACHE_KEY, true);
   hook.enable15sVideo = readCachedSetting(ENABLE_15S_VIDEO_CACHE_KEY, false);
+  hook.onlyCurrentConv = readCachedSetting(ONLY_CURRENT_CONV_CACHE_KEY, false);
 
   const _parse = JSON.parse;
   const _stringify = JSON.stringify;
@@ -391,6 +413,7 @@ export function uninstallJsonHook() {
 export function useJson({
   showRaw,
   enable15sVideo,
+  onlyCurrentConv,
   onUpdateVideoDurationSuccess,
   onUpdateVideoDurationError,
   callback,
@@ -419,8 +442,12 @@ export function useJson({
       hook.enable15sVideo = enable15sVideo;
       writeCachedSetting(ENABLE_15S_VIDEO_CACHE_KEY, enable15sVideo);
     }
+    if (onlyCurrentConv !== undefined) {
+      hook.onlyCurrentConv = onlyCurrentConv;
+      writeCachedSetting(ONLY_CURRENT_CONV_CACHE_KEY, onlyCurrentConv);
+    }
     hook.onUpdateVideoDurationSuccess = onUpdateVideoDurationSuccess;
     hook.onUpdateVideoDurationError = onUpdateVideoDurationError;
-  }, [showRaw, enable15sVideo, onUpdateVideoDurationSuccess, onUpdateVideoDurationError]);
+  }, [showRaw, enable15sVideo, onlyCurrentConv, onUpdateVideoDurationSuccess, onUpdateVideoDurationError]);
 }
 

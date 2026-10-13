@@ -286,3 +286,41 @@ describe("conversation rich media extraction", () => {
     unmount();
   });
 });
+
+describe("only current conversation", () => {
+  const history = (conversationId: string, messageId: string) =>
+    JSON.stringify({
+      messages: [
+        {
+          conversation_id: conversationId,
+          message_id: messageId,
+          index_in_conv: "1",
+          create_time: "100",
+          creations: [{ image: { key: messageId, image_ori_raw: { url: "https://example.test/raw.png" } } }],
+        },
+      ],
+    });
+
+  it("ignores other conversations and can capture them once they become current", () => {
+    window.history.pushState({}, "", "/chat/111");
+    const callback = vi.fn();
+    const { unmount } = renderHook(() => useJson({ callback, onlyCurrentConv: true }));
+
+    act(() => {
+      JSON.parse(history("222", "other"));
+      JSON.parse(history("111", "mine"));
+    });
+    const captured = () => callback.mock.calls.flatMap(([messages]) => messages.map((m: any) => m.message_id));
+    expect(captured()).toEqual(["mine"]);
+
+    // 之前被忽略的消息没有被记成已见，切到那个会话后照常捕获
+    window.history.pushState({}, "", "/chat/222");
+    act(() => {
+      JSON.parse(history("222", "other"));
+    });
+    expect(captured()).toEqual(["mine", "other"]);
+
+    unmount();
+    window.history.pushState({}, "", "/");
+  });
+});

@@ -100,6 +100,11 @@ export const SETTING_DEFAULTS: Setting[] = [
     label: "面板快捷键",
   },
   {
+    key: "only_current_conv",
+    value: false,
+    label: "只扫描当前对话",
+  },
+  {
     key: "auto_select_current_conv",
     value: true,
     label: "自动选中当前对话",

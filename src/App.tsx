@@ -22,6 +22,7 @@ import { getSourceDownloadUrl } from "@/utils/video-url";
 import { useDeletedMediaKeys } from "@/hooks/use-deleted-media-keys";
 import { getCurrentConvId, matchesConvScope } from "@/utils/conv-filter";
 import { loadConversationHistory } from "@/utils/load-history";
+import { useOnlyCurrentConv } from "@/hooks/use-only-current-conv";
 import { HistoryContext } from "@/context/HistoryContext";
 import { ensureWritable, getSavedDirectory } from "@/utils/directory-download";
 import {
@@ -135,14 +136,25 @@ function App() {
     console.error("updateVideoDuration error:", error);
   }, []);
 
+  const onlyCurrentConv: boolean | undefined = setting.find(
+    (item: Setting) => item.key === "only_current_conv",
+  )?.value;
+  const pruneToCurrentConv = useOnlyCurrentConv(
+    Boolean(onlyCurrentConv),
+    isOpenMainPanel,
+    setConvMessageList,
+  );
+
   useJson({
     // 设置加载完成前为 undefined，钩子沿用上次缓存的值
+    onlyCurrentConv,
     showRaw: setting.find((item: Setting) => item.key === "show_raw")?.value,
     enable15sVideo:
       setting.find((item: Setting) => item.key === "enable_15s_video")?.value,
     onUpdateVideoDurationSuccess: handleUpdateVideoDurationSuccess,
     onUpdateVideoDurationError: handleUpdateVideoDurationError,
     callback: (convMessages: ConvMessage[]) => {
+      pruneToCurrentConv();
       setConvMessageList((prev) => {
         const seen = new Set(prev.map((existing) => `${existing.source}|${existing.message_id}`));
         const newConv = convMessages.filter(
@@ -541,8 +553,10 @@ function App() {
     handleDownload(
       selectKeys.map(
         (key) =>
-          convMessageList.find((conv) => conv.creation?.image.key === key)!,
-      ),
+          convMessageList.find((conv) => conv.creation?.image.key === key),
+        )
+        // 选中的内容可能已随会话切换被清掉
+        .filter((conv): conv is ConvMessage => Boolean(conv)),
     );
   }, [convMessageList, handleDownload, selectKeys]);
 
