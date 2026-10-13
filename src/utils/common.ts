@@ -26,16 +26,20 @@ export const completeSuffix = (filename: string, suffix: string) => {
   return filename;
 };
 
+const RESERVED_NAME = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i;
+
 // 去掉文件系统不允许的字符并限制长度，结果可能为空字符串
+// 浏览器直接写文件夹时比 zip 更严格：不可见的格式字符、首尾的 . ~ 和空格、Windows 保留名都会被拒绝
 export const sanitizeFileName = (name: unknown, maxLength = 100) => {
   const cleaned = String(name ?? "")
     .replace(/\s+/g, " ")
-    .replace(/[\\/:*?"<>|\u0000-\u001f]/g, "_")
-    .trim();
-  return Array.from(cleaned)
+    .replace(/[\p{Cf}\p{Co}\p{Cn}]/gu, "")
+    .replace(/[\\/:*?"<>|\p{Cc}]/gu, "_");
+  const trimmed = Array.from(cleaned.replace(/^[.~ ]+/, ""))
     .slice(0, maxLength)
     .join("")
-    .replace(/[. ]+$/, "");
+    .replace(/[.~ ]+$/, "");
+  return RESERVED_NAME.test(trimmed) ? `_${trimmed}` : trimmed;
 };
 
 export const buildFileName = (

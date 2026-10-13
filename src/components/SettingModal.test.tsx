@@ -70,6 +70,7 @@ describe("SettingModal", () => {
     expect(SETTING_DEFAULTS.find((item) => item.key === "panel_shortcut")?.value).toBe("Alt + D");
     expect(SETTING_DEFAULTS.find((item) => item.key === "auto_select_current_conv")?.value).toBe(true);
     expect(SETTING_DEFAULTS.find((item) => item.key === "auto_load_history")?.value).toBe(true);
+    expect(SETTING_DEFAULTS.find((item) => item.key === "conv_id_subfolder")?.value).toBe(true);
   });
 
   it("flushes the custom panel shortcut before closing", () => {

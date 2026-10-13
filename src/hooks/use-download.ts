@@ -4,13 +4,16 @@ import streamSaver from "streamsaver";
 import saveAs from "file-saver";
 import "../lib/zip-stream.js";
 import type { DownloadImage, ZipWriter } from "@/types";
+import { saveToDirectory } from "@/utils/directory-download";
 
 interface DownloadOptions {
   concurrency?: number;
   zipName?: string;
+  /** 指定后不打包，直接把文件写进这个文件夹 */
+  directory?: FileSystemDirectoryHandle;
   onProgress?: (current: number, total: number) => void;
   onError?: (url: string, error: Error) => void;
-  onSave?: (failedUrls: string[]) => void;
+  onSave?: (failedUrls: string[], skipped?: number) => void;
   onCancel?: () => void;
 }
 
@@ -194,8 +197,21 @@ export function useDownload() {
           onProgress(current, total);
         };
 
-        // 单张图片直接下载
-        if (downloadImageList.length === 1) {
+        if (options.directory) {
+          const { failedUrls, skipped } = await saveToDirectory(
+            options.directory,
+            downloadImageList,
+            {
+              concurrency: options.concurrency || 5,
+              signal,
+              onProgress: handleProgress,
+              onError,
+              fetchFile: getImageResponse,
+            },
+          );
+          options.onSave?.(failedUrls, skipped);
+        } else if (downloadImageList.length === 1) {
+          // 单张图片直接下载
           const downloadImage = downloadImageList[0];
           const url = downloadImage.url;
           try {

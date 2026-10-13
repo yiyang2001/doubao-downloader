@@ -1,5 +1,12 @@
-import { Modal, Switch, Toast, Input, InputNumber, Tabs, TabPane } from "@douyinfe/semi-ui-19";
-import { useCallback, useContext, type ReactNode } from "react";
+import { Button, Modal, Switch, Toast, Input, InputNumber, Tabs, TabPane } from "@douyinfe/semi-ui-19";
+import { useCallback, useContext, useEffect, useState, type ReactNode } from "react";
+import {
+  DIRECTORY_CHANGE_EVENT,
+  clearDirectory,
+  getSavedDirectory,
+  pickDirectory,
+  supportsDirectoryDownload,
+} from "@/utils/directory-download";
 import { SettingContext } from "@/context/SettingContext";
 import { Setting, SettingKey } from "@/types";
 import { SETTING_DEFAULTS } from "@/db";
@@ -24,6 +31,42 @@ function SettingRow({ label, description, control }: SettingRowProps) {
         {description && <div className="dd:mt-1 dd:text-xs dd:text-slate-400">{description}</div>}
       </div>
       <div className="dd:flex dd:max-w-[58%] dd:shrink-0 dd:items-center dd:justify-end">{control}</div>
+    </div>
+  );
+}
+
+function DownloadDirectoryControl() {
+  const [directoryName, setDirectoryName] = useState<string>();
+
+  useEffect(() => {
+    const refresh = () => {
+      getSavedDirectory().then((directory) => setDirectoryName(directory?.name));
+    };
+    refresh();
+    window.addEventListener(DIRECTORY_CHANGE_EVENT, refresh);
+    return () => window.removeEventListener(DIRECTORY_CHANGE_EVENT, refresh);
+  }, []);
+
+  if (!supportsDirectoryDownload()) {
+    return <span className="dd:text-xs dd:text-slate-400">当前浏览器不支持</span>;
+  }
+
+  const choose = () => {
+    pickDirectory().catch((error) => {
+      console.error("pickDirectory error:", error);
+      Toast.error("选择文件夹失败，请换一个文件夹（不能直接选「下载」「文档」「桌面」）");
+    });
+  };
+
+  return (
+    <div className="dd:flex dd:min-w-0 dd:items-center dd:gap-2">
+      <span className="dd:truncate dd:text-xs dd:text-slate-500" title={directoryName}>
+        {directoryName || "未选择"}
+      </span>
+      <Button onClick={choose} size="small">选择</Button>
+      {directoryName && (
+        <Button onClick={() => clearDirectory()} size="small" type="tertiary">清除</Button>
+      )}
     </div>
   );
 }
@@ -54,6 +97,7 @@ function SettingModal({ isOpenSetting, onCloseSetting }: SettingModalProps) {
   const customFilenameTemplate = getSetting("custom_filename_template");
   const zipFilenameTemplate = getSetting("zip_filename_template");
   const createFolder = getSetting("create_folder");
+  const convIdSubfolder = getSetting("conv_id_subfolder");
   const enable15sVideo = getSetting("enable_15s_video");
   const downloadByDisplayOrder = getSetting("download_by_display_order");
   const showCaptureNotification = getSetting("show_capture_notification");
@@ -130,6 +174,16 @@ function SettingModal({ isOpenSetting, onCloseSetting }: SettingModalProps) {
 
           <TabPane itemKey="files" tab="文件与目录">
             <div className="dd-setting-content">
+              <SettingRow
+                control={<DownloadDirectoryControl />}
+                description="选择后不再打包 zip，文件直接保存到该文件夹，已存在的会跳过"
+                label="下载文件夹"
+              />
+              <SettingRow
+                control={<Switch aria-label={convIdSubfolder.label} checked={convIdSubfolder.value} onChange={(checked) => changeSetting(convIdSubfolder, checked)} />}
+                description="选择了下载文件夹时，每个对话的文件放进以对话ID命名的子文件夹"
+                label={convIdSubfolder.label}
+              />
               <SettingRow
                 control={
                   <Input

@@ -22,6 +22,7 @@ import { useDeletedMediaKeys } from "@/hooks/use-deleted-media-keys";
 import { getCurrentConvId, matchesConvScope } from "@/utils/conv-filter";
 import { loadConversationHistory } from "@/utils/load-history";
 import { HistoryContext } from "@/context/HistoryContext";
+import { ensureWritable, getSavedDirectory } from "@/utils/directory-download";
 
 function settingValue<T>(settings: Setting[], key: SettingKey, fallback: T): T {
   return (settings.find((item) => item.key === key)?.value as T | undefined) ?? fallback;
@@ -249,6 +250,12 @@ function App() {
         Toast.warning("请选择要下载的内容");
         return;
       }
+      // 授权必须紧跟用户的点击，放在其它耗时操作之前
+      const directory = await getSavedDirectory();
+      if (directory && !(await ensureWritable(directory).catch(() => false))) {
+        Toast.error(`没有获得文件夹「${directory.name}」的写入权限，已取消下载`);
+        return;
+      }
       const downloadedArray =
         setting.find((item) => item.key === 'skip_downloaded')?.value || false
           ? await db.downloaded.toArray()
@@ -260,6 +267,9 @@ function App() {
         "${conversation_id}_${message_id}_${index_in_conv}_${creation.image.key}";
       const createFolder =
         setting.find((item) => item.key === "create_folder")?.value || false;
+      // 只在直接保存到文件夹时生效，优先于按消息文本建文件夹
+      const convIdSubfolder =
+        Boolean(directory) && settingValue(setting, "conv_id_subfolder", true);
       const downloadByDisplayOrder =
         setting.find((item) => item.key === "download_by_display_order")?.value || false;
 
@@ -285,9 +295,11 @@ function App() {
         url: string,
         suffix: string,
       ) => {
-        const folder = createFolder
-          ? buildFolderName(conv.tts_content, conv.conversation_id)
-          : "";
+        const folder = convIdSubfolder
+          ? buildFolderName(conv.source === "aispace" ? "我的创作" : conv.conversation_id)
+          : createFolder
+            ? buildFolderName(conv.tts_content, conv.conversation_id)
+            : "";
         const filename = withDisplayOrder(
           buildFileName(
             customFilenameTemplate,
@@ -385,6 +397,7 @@ function App() {
       }
 
       download(downloadImages, {
+        directory,
         zipName: buildZipName(
           setting.find((item) => item.key === "zip_filename_template")?.value,
           convName,
@@ -395,7 +408,7 @@ function App() {
         concurrency: setting.find(
           (item) => item.key === "download_concurrency",
         )?.value || 5,
-        onSave(failedUrls) {
+        onSave(failedUrls, skipped = 0) {
           // 下载失败的不记入已下载，否则会被"跳过已下载"永久跳过
           const failed = new Set(failedUrls);
           const savedUrls = downloadImages
@@ -404,10 +417,17 @@ function App() {
           const videoThumbnailUrls = fulfilledVideos
             .filter(({ videoUrl }) => !failed.has(videoUrl))
             .map(({ conv }) => conv.creation.image.image_ori_raw.url);
+          const summary = [
+            directory ? `已保存到「${directory.name}」` : "下载完成",
+            skipped > 0 ? `${skipped} 个已存在已跳过` : "",
+            failed.size > 0 ? `${failed.size} 个失败` : "",
+          ]
+            .filter(Boolean)
+            .join("，");
           if (failed.size > 0) {
-            Toast.warning(`下载完成，${failed.size} 个失败`);
+            Toast.warning(directory ? `${summary}，再次下载可补齐` : summary);
           } else {
-            Toast.success("下载完成");
+            Toast.success(summary);
           }
           db.downloaded.bulkAdd(
             [...savedUrls, ...videoThumbnailUrls].map((url) => ({ url })),

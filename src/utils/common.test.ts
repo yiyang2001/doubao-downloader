@@ -61,6 +61,15 @@ describe("file name helpers", () => {
     expect(buildFolderName(undefined)).toBe("未命名/");
   });
 
+  it("produces names the browser accepts when writing straight to a folder", () => {
+    expect(sanitizeFileName("a\u200db\ufeff")).toBe("ab");
+    expect(sanitizeFileName("~draft.")).toBe("draft");
+    expect(sanitizeFileName(" . name ~")).toBe("name");
+    expect(sanitizeFileName("CON")).toBe("_CON");
+    expect(sanitizeFileName("nul.png")).toBe("_nul.png");
+    expect(sanitizeFileName("a~b.png")).toBe("a~b.png");
+  });
+
   it("numbers duplicate names", () => {
     const used = new Set<string>();
     expect(uniqueName("a.png", used)).toBe("a.png");
