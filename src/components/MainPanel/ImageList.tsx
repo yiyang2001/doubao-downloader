@@ -7,9 +7,10 @@ import { ConvFilterContext } from "@/context/ConvFilterContext";
 import { HistoryContext } from "@/context/HistoryContext";
 import { ConvContext } from "@/context/ConvContext";
 import { matchesConvScope } from "@/utils/conv-filter";
-
-const READY_MEDIA_COUNT = 10;
 import { useLiveQuery } from "dexie-react-hooks";
+
+// 加载历史时攒够这么多个媒体就先展示
+const READY_MEDIA_COUNT = 10;
 
 interface ImageListProps {
   className?: string;
