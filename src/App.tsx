@@ -22,6 +22,7 @@ import { getSourceDownloadUrl } from "@/utils/video-url";
 import { useDeletedMediaKeys } from "@/hooks/use-deleted-media-keys";
 import { getCurrentConvId, matchesConvScope } from "@/utils/conv-filter";
 import { loadConversationHistory } from "@/utils/load-history";
+import { useDownloadQueue } from "@/hooks/use-download-queue";
 import { useOnlyCurrentConv } from "@/hooks/use-only-current-conv";
 import { HistoryContext } from "@/context/HistoryContext";
 import { ensureWritable, getSavedDirectory } from "@/utils/directory-download";
@@ -268,16 +269,8 @@ function App() {
     [convFilter],
   );
 
-  const handleDownload = useCallback(
+  const runDownload = useCallback(
     async (convMessages: ConvMessage[]) => {
-      if (isDownloading) {
-        Toast.warning("正在下载中，请勿重复下载");
-        return;
-      }
-      if (convMessages.length === 0) {
-        Toast.warning("请选择要下载的内容");
-        return;
-      }
       // 授权必须紧跟用户的点击，放在其它耗时操作之前
       const directory = await getSavedDirectory();
       if (directory && !(await ensureWritable(directory).catch(() => false))) {
@@ -514,8 +507,13 @@ function App() {
         },
       });
     },
-    [download, isDownloading, setting, convMessageList, addFailedDownloads],
+    [download, setting, convMessageList, addFailedDownloads],
   );
+  const downloadQueue = useDownloadQueue(
+    runDownload,
+    settingValue(setting, "queue_downloads", false),
+  );
+  const handleDownload = downloadQueue.start;
 
   const handlePlay = useCallback(async (convMessage: ConvMessage) => {
     if (!convMessage.creation.vid) return;
@@ -579,7 +577,16 @@ function App() {
       className="dd:bg-background dd:text-foreground dd:h-0"
     >
       <Indicator hidden={hideIndicator} onClick={() => setIsOpenMainPanel(!isOpenMainPanel)} />
-      <ProgressModal isDownloading={isDownloading} progress={progress} onCancel={cancel} />
+      <ProgressModal
+        floating={settingValue(setting, "queue_downloads", false)}
+        isDownloading={isDownloading}
+        progress={progress}
+        current={downloadQueue.current}
+        queue={downloadQueue.queue}
+        onCancel={cancel}
+        onClearQueue={downloadQueue.clear}
+        onRemoveQueued={downloadQueue.remove}
+      />
       <FailedDownloadsModal
         failures={failedDownloads}
         onClose={() => setFailedDownloads([])}

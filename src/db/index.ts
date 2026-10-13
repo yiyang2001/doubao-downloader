@@ -45,6 +45,11 @@ export const SETTING_DEFAULTS: Setting[] = [
     label: "跳过已下载的图片",
   },
   {
+    key: "queue_downloads",
+    value: false,
+    label: "排队下载",
+  },
+  {
     key: "download_concurrency",
     value: 5,
     label: "下载图片并发数",

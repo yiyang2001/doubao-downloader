@@ -95,6 +95,7 @@ function SettingModal({ isOpenSetting, onCloseSetting }: SettingModalProps) {
   const showRaw = getSetting("show_raw");
   const skipDownloaded = getSetting("skip_downloaded");
   const downloadConcurrency = getSetting("download_concurrency");
+  const queueDownloads = getSetting("queue_downloads");
   const customFilenameTemplate = getSetting("custom_filename_template");
   const zipFilenameTemplate = getSetting("zip_filename_template");
   const createFolder = getSetting("create_folder");
@@ -157,6 +158,11 @@ function SettingModal({ isOpenSetting, onCloseSetting }: SettingModalProps) {
                 control={<Switch checked={downloadByDisplayOrder.value} onChange={(checked) => changeSetting(downloadByDisplayOrder, checked)} />}
                 description="按当前列表从上到下的顺序写入文件"
                 label={downloadByDisplayOrder.label}
+              />
+              <SettingRow
+                control={<Switch aria-label={queueDownloads.label} checked={queueDownloads.value} onChange={(checked) => changeSetting(queueDownloads, checked)} />}
+                description="下载时不再弹出遮挡操作的进度窗口，进度显示在可拖动的浮窗里（默认右上角）；下载中再点下载会自动排队"
+                label={queueDownloads.label}
               />
               <SettingRow
                 control={
