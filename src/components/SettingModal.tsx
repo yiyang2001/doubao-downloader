@@ -59,6 +59,8 @@ function SettingModal({ isOpenSetting, onCloseSetting }: SettingModalProps) {
   const showCaptureNotification = getSetting("show_capture_notification");
   const hideIndicator = getSetting("hide_indicator");
   const panelShortcut = getSetting("panel_shortcut");
+  const autoSelectCurrentConv = getSetting("auto_select_current_conv");
+  const autoLoadHistory = getSetting("auto_load_history");
 
   const customFilenameTemplateLocal = useSetting(customFilenameTemplate, changeSetting);
   const zipFilenameTemplateLocal = useSetting(zipFilenameTemplate, changeSetting);
@@ -173,6 +175,16 @@ function SettingModal({ isOpenSetting, onCloseSetting }: SettingModalProps) {
 
           <TabPane itemKey="general" tab="通用">
             <div className="dd-setting-content">
+              <SettingRow
+                control={<Switch aria-label={autoSelectCurrentConv.label} checked={autoSelectCurrentConv.value} onChange={(checked) => changeSetting(autoSelectCurrentConv, checked)} />}
+                description="打开面板时把对话筛选切换到当前所在的对话"
+                label={autoSelectCurrentConv.label}
+              />
+              <SettingRow
+                control={<Switch aria-label={autoLoadHistory.label} checked={autoLoadHistory.value} onChange={(checked) => changeSetting(autoLoadHistory, checked)} />}
+                description="打开面板时自动向上滚动当前对话，捕获更早的图片和视频"
+                label={autoLoadHistory.label}
+              />
               <SettingRow
                 control={<Switch aria-label={showCaptureNotification.label} checked={showCaptureNotification.value} onChange={(checked) => changeSetting(showCaptureNotification, checked)} />}
                 description="捕获到新图片或视频时显示通知"

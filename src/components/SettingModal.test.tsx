@@ -68,6 +68,8 @@ describe("SettingModal", () => {
     expect(SETTING_DEFAULTS.find((item) => item.key === "show_capture_notification")?.value).toBe(true);
     expect(SETTING_DEFAULTS.find((item) => item.key === "hide_indicator")?.value).toBe(false);
     expect(SETTING_DEFAULTS.find((item) => item.key === "panel_shortcut")?.value).toBe("Alt + D");
+    expect(SETTING_DEFAULTS.find((item) => item.key === "auto_select_current_conv")?.value).toBe(true);
+    expect(SETTING_DEFAULTS.find((item) => item.key === "auto_load_history")?.value).toBe(true);
   });
 
   it("flushes the custom panel shortcut before closing", () => {

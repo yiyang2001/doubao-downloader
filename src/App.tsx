@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Indicator } from "./components/Indicator";
 import MainPanel from "./components/MainPanel/MainPanel";
 import { useJson } from "./hooks/use-json";
@@ -19,7 +19,9 @@ import { filterConvsByMediaType } from "@/utils/media-filter";
 import { filterDeletedConvs } from "@/utils/deleted-media";
 import { getSourceDownloadUrl } from "@/utils/video-url";
 import { useDeletedMediaKeys } from "@/hooks/use-deleted-media-keys";
-import { matchesConvScope } from "@/utils/conv-filter";
+import { getCurrentConvId, matchesConvScope } from "@/utils/conv-filter";
+import { loadConversationHistory } from "@/utils/load-history";
+import { HistoryContext } from "@/context/HistoryContext";
 
 function settingValue<T>(settings: Setting[], key: SettingKey, fallback: T): T {
   return (settings.find((item) => item.key === key)?.value as T | undefined) ?? fallback;
@@ -42,6 +44,7 @@ function App() {
   const showCaptureNotification = settingValue(setting, "show_capture_notification", true);
   const hideIndicator = settingValue(setting, "hide_indicator", false);
   const panelShortcut = settingValue(setting, "panel_shortcut", "Alt + D");
+  const historyLoaderRef = useRef<AbortController | undefined>(undefined);
   const showCaptureNotificationRef = useRef(showCaptureNotification);
   showCaptureNotificationRef.current = showCaptureNotification;
 
@@ -124,13 +127,9 @@ function App() {
     onUpdateVideoDurationError: handleUpdateVideoDurationError,
     callback: (convMessages: ConvMessage[]) => {
       setConvMessageList((prev) => {
+        const seen = new Set(prev.map((existing) => `${existing.source}|${existing.message_id}`));
         const newConv = convMessages.filter(
-          (message) =>
-            !prev.some(
-              (existing) =>
-                existing.message_id === message.message_id &&
-                existing.source === message.source,
-            ),
+          (message) => !seen.has(`${message.source}|${message.message_id}`),
         );
         if (newConv.length === 0) return prev;
         const newImageCount = newConv.filter(
@@ -143,7 +142,8 @@ function App() {
         ).length;
         if (newImageCount === 0 && newVideoCount === 0) return prev;
         const content = `捕获到: ${newImageCount > 0 ? '图片[' + newImageCount + ']张' : ''} ${newVideoCount > 0 ? '视频[' + newVideoCount + ']个' : ''}`;
-        if (showCaptureNotificationRef.current) {
+        // 加载历史时每批都会捕获到新媒体，逐批弹通知会堆满屏幕，结束后统一提示
+        if (showCaptureNotificationRef.current && !historyLoaderRef.current) {
           Notification.info({
             title: "豆包下载器",
             content: (
@@ -169,6 +169,68 @@ function App() {
       });
     },
   });
+
+  const [currentConvId, setCurrentConvId] = useState<string>();
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+  // 已经自动加载过历史的会话，再次打开面板时不重复加载
+  const autoLoadedConvIds = useRef(new Set<string>());
+  const mediaCountRef = useRef(0);
+  mediaCountRef.current = convMessageList.filter((conv) => conv.creation).length;
+
+  const startLoadHistory = useCallback(async (convId: string) => {
+    historyLoaderRef.current?.abort();
+    const controller = new AbortController();
+    historyLoaderRef.current = controller;
+    autoLoadedConvIds.current.add(convId);
+    setIsLoadingHistory(true);
+    const before = mediaCountRef.current;
+    const result = await loadConversationHistory({
+      signal: controller.signal,
+      getCapturedCount: () => mediaCountRef.current,
+      keepGoing: () => getCurrentConvId() === convId,
+    });
+    if (historyLoaderRef.current !== controller) return;
+    historyLoaderRef.current = undefined;
+    setIsLoadingHistory(false);
+    if (result === "no-scroller") {
+      Toast.warning("没有找到对话的消息列表");
+    } else if (result === "done") {
+      Toast.success(`已加载到对话开头，新增 ${mediaCountRef.current - before} 个媒体`);
+    }
+  }, []);
+
+  const toggleLoadHistory = useCallback(() => {
+    if (historyLoaderRef.current) {
+      historyLoaderRef.current.abort();
+      return;
+    }
+    const convId = getCurrentConvId();
+    setCurrentConvId(convId);
+    if (!convId) {
+      Toast.warning("请先打开一个对话");
+      return;
+    }
+    startLoadHistory(convId);
+  }, [startLoadHistory]);
+
+  // 打开面板时按设置自动选中当前会话、加载它更早的消息
+  const autoSelectCurrentConvRef = useRef(true);
+  autoSelectCurrentConvRef.current = settingValue(setting, "auto_select_current_conv", true);
+  const autoLoadHistoryRef = useRef(true);
+  autoLoadHistoryRef.current = settingValue(setting, "auto_load_history", true);
+  // 用 layout effect 在面板画出来之前切换，避免先闪一下上一个会话的图片
+  useLayoutEffect(() => {
+    if (!isOpenMainPanel) return;
+    const convId = getCurrentConvId();
+    setCurrentConvId(convId);
+    if (!convId) return;
+    if (autoSelectCurrentConvRef.current) {
+      setConvFilter((prev) => ({ ...prev, showConvId: convId, currentPage: 1 }));
+    }
+    if (autoLoadHistoryRef.current && !autoLoadedConvIds.current.has(convId)) {
+      startLoadHistory(convId);
+    }
+  }, [isOpenMainPanel, startLoadHistory]);
 
   const changeFilter = useCallback(
     (key: keyof ConvFilter, value: string) => {
@@ -444,13 +506,15 @@ function App() {
         }}
       >
         <ConvFilterContext.Provider value={convFilter}>
-          <MainPanel
-            changeConvFilter={changeFilter}
-            isOpenMainPanel={isOpenMainPanel}
-            onCloseMainPanel={() => setIsOpenMainPanel(false)}
-            isOpenSetting={isOpenSetting}
-            openSetting={() => setIsOpenSetting(true)}
-          />
+          <HistoryContext.Provider value={{ currentConvId, isLoadingHistory, toggleLoadHistory }}>
+            <MainPanel
+              changeConvFilter={changeFilter}
+              isOpenMainPanel={isOpenMainPanel}
+              onCloseMainPanel={() => setIsOpenMainPanel(false)}
+              isOpenSetting={isOpenSetting}
+              openSetting={() => setIsOpenSetting(true)}
+            />
+          </HistoryContext.Provider>
         </ConvFilterContext.Provider>
       </ConvContext.Provider>
     </div>

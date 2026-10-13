@@ -89,6 +89,16 @@ export const SETTING_DEFAULTS: Setting[] = [
     value: "Alt + D",
     label: "面板快捷键",
   },
+  {
+    key: "auto_select_current_conv",
+    value: true,
+    label: "自动选中当前对话",
+  },
+  {
+    key: "auto_load_history",
+    value: true,
+    label: "自动加载更早的消息",
+  },
 ];
 
 export class SettingService {

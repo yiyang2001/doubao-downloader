@@ -1,14 +1,11 @@
 import { ConvContext } from "@/context/ConvContext";
-import { Button, Card, DatePicker, Radio, RadioGroup, Select, Space } from "@douyinfe/semi-ui-19";
-import { memo, useContext, useMemo, useState } from "react";
+import { Button, Card, DatePicker, Radio, RadioGroup, Select, Space, Spin } from "@douyinfe/semi-ui-19";
+import { memo, useContext, useMemo } from "react";
 import type { MediaCounts } from "@/utils/media-filter";
 import type { MediaType } from "@/types";
-import {
-  AISPACE_FILTER,
-  buildConvOptions,
-  getCurrentConvId,
-  matchesConvSearch,
-} from "@/utils/conv-filter";
+import { AISPACE_FILTER, buildConvOptions, matchesConvSearch } from "@/utils/conv-filter";
+import { ConvFilterContext } from "@/context/ConvFilterContext";
+import { HistoryContext } from "@/context/HistoryContext";
 
 interface ActionCardProps {
   changeConv: (convId: string) => void;
@@ -28,17 +25,17 @@ function ActionCard({
   const { convMessage, handleDownloadAll, handleDownloadSelected } =
     useContext(ConvContext);
   const convOptions = useMemo(() => buildConvOptions(convMessage), [convMessage]);
-  const defaultSelected = "-1";
-  // 页面内切换会话不会重新挂载面板，展开下拉框时重新读取一次
-  const [currentConvId, setCurrentConvId] = useState(getCurrentConvId);
-  const pinnedConv = convOptions.find((item) => item.id === currentConvId);
-  const otherConvs = convOptions.filter((item) => item !== pinnedConv);
+  const { showConvId } = useContext(ConvFilterContext);
+  const { currentConvId, isLoadingHistory, toggleLoadHistory } = useContext(HistoryContext);
+  // 当前会话即使还没捕获到媒体也要列出来，否则选中它时下拉框没有对应的选项
+  const pinnedConv = currentConvId ? { id: currentConvId, label: currentConvId } : undefined;
+  const otherConvs = convOptions.filter((item) => item.id !== currentConvId);
 
   return (
     <Card>
       <div className="dd:w-full dd:flex dd:flex-wrap dd:items-center dd:gap-2 dd:cursor-default">
         <Select
-          defaultValue={defaultSelected}
+          value={showConvId}
           style={{ width: 200 }}
           onChange={(value) => changeConv(value as string)}
           filter={(input, option) =>
@@ -46,9 +43,6 @@ function ActionCard({
           }
           searchPosition="dropdown"
           searchPlaceholder="搜索对话ID"
-          onDropdownVisibleChange={(visible) => {
-            if (visible) setCurrentConvId(getCurrentConvId());
-          }}
         >
           {pinnedConv && (
             <Select.Option
@@ -99,6 +93,13 @@ function ActionCard({
           <Radio value="video">视频 {mediaCounts.video}</Radio>
         </RadioGroup>
         <Space>
+          <Button
+            icon={isLoadingHistory ? <Spin size="small" /> : undefined}
+            onClick={toggleLoadHistory}
+            type="tertiary"
+          >
+            {isLoadingHistory ? "停止加载" : "加载更早的消息"}
+          </Button>
           <Button onClick={handleDownloadSelected} type="tertiary">下载选中</Button>
           <Button onClick={handleDownloadAll} type="tertiary">全部下载</Button>
         </Space>
