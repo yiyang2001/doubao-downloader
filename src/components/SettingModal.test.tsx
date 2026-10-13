@@ -18,6 +18,7 @@ vi.mock("@douyinfe/semi-ui-19", () => ({
         {children}
       </div>
     ) : null,
+  Select: ({ value }: { value?: string }) => <output>{value}</output>,
   Switch: ({ checked, onChange, "aria-label": ariaLabel }: { checked?: boolean; onChange?: (checked: boolean) => void; "aria-label"?: string }) => (
     <input aria-label={ariaLabel} checked={checked} onChange={(event) => onChange?.(event.target.checked)} type="checkbox" />
   ),
@@ -71,6 +72,7 @@ describe("SettingModal", () => {
     expect(SETTING_DEFAULTS.find((item) => item.key === "auto_select_current_conv")?.value).toBe(true);
     expect(SETTING_DEFAULTS.find((item) => item.key === "auto_load_history")?.value).toBe(true);
     expect(SETTING_DEFAULTS.find((item) => item.key === "conv_id_subfolder")?.value).toBe(true);
+    expect(SETTING_DEFAULTS.find((item) => item.key === "image_save_format")?.value).toBe("png");
   });
 
   it("flushes the custom panel shortcut before closing", () => {

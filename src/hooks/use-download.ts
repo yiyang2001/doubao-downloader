@@ -4,7 +4,8 @@ import streamSaver from "streamsaver";
 import saveAs from "file-saver";
 import "../lib/zip-stream.js";
 import type { DownloadImage, ZipWriter } from "@/types";
-import { saveToDirectory } from "@/utils/directory-download";
+import { createIntegrityCheck, saveToDirectory, withRetry } from "@/utils/directory-download";
+import { convertImage } from "@/utils/image-convert";
 
 interface DownloadOptions {
   concurrency?: number;
@@ -27,6 +28,8 @@ export function useDownload() {
     current: 0,
     total: 0,
     percentage: 0,
+    // 请求超时后转入后台重试的文件数
+    retrying: 0,
   });
   const [error, setError] = useState<Error | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -53,8 +56,9 @@ export function useDownload() {
         });
 
         if (!response.ok) {
-          throw new Error(
-            `下载失败: ${response.status} ${response.statusText}`,
+          throw Object.assign(
+            new Error(`下载失败: ${response.status} ${response.statusText}`),
+            { status: response.status },
           );
         }
 
@@ -66,6 +70,21 @@ export function useDownload() {
       }
     },
     [],
+  );
+
+  // 需要转换格式的图片整张读入内存后重新编码，其余保持流式
+  const fetchItem = useCallback(
+    async (item: DownloadImage, signal?: AbortSignal): Promise<Response> => {
+      const response = await getImageResponse(item.url, signal);
+      if (!item.format) return response;
+      const blob = await response.blob();
+      const integrity = createIntegrityCheck();
+      integrity.update(new Uint8Array(await blob.slice(0, 8).arrayBuffer()));
+      integrity.update(new Uint8Array(await blob.slice(-12).arrayBuffer()));
+      if (!integrity.isComplete()) throw new Error("文件不完整，服务器提前结束了传输");
+      return new Response(await convertImage(blob, item.format));
+    },
+    [getImageResponse],
   );
 
   const createZipStream = useCallback(
@@ -99,7 +118,8 @@ export function useDownload() {
               const { url, folder } = downloadImage;
 
               try {
-                const res = await getImageResponse(url, signal);
+                // 流式写入 zip 的内容无法事后校验，这里只能对请求和格式转换做重试
+                const res = await withRetry(() => fetchItem(downloadImage, signal), { signal });
                 const stream = () =>
                   res.body as ReadableStream<Uint8Array<ArrayBuffer>>;
                 let fileName = downloadImage.filename || getFileNameFromUrl(url);
@@ -159,7 +179,7 @@ export function useDownload() {
         removeAbortListener();
       }
     },
-    [getImageResponse, getFileNameFromUrl],
+    [fetchItem, getFileNameFromUrl],
   );
 
   const download = useCallback(
@@ -176,6 +196,7 @@ export function useDownload() {
         current: 0,
         total: downloadImageList.length,
         percentage: 0,
+        retrying: 0,
       });
 
       if (!downloadImageList.length) {
@@ -193,7 +214,7 @@ export function useDownload() {
         const handleProgress = (current: number, total: number) => {
           const percentage =
             total > 0 ? Math.round((current / total) * 100) : 0;
-          setProgress({ current, total, percentage });
+          setProgress((prev) => ({ ...prev, current, total, percentage }));
           onProgress(current, total);
         };
 
@@ -206,7 +227,8 @@ export function useDownload() {
               signal,
               onProgress: handleProgress,
               onError,
-              fetchFile: getImageResponse,
+              onRetrying: (retrying) => setProgress((prev) => ({ ...prev, retrying })),
+              fetchFile: fetchItem,
             },
           );
           options.onSave?.(failedUrls, skipped);
@@ -215,7 +237,7 @@ export function useDownload() {
           const downloadImage = downloadImageList[0];
           const url = downloadImage.url;
           try {
-            const response = await getImageResponse(url, signal);
+            const response = await withRetry(() => fetchItem(downloadImage, signal), { signal });
             const blob = await response.blob();
             const fileName = downloadImage.filename || getFileNameFromUrl(url);
             saveAs(blob, fileName);
@@ -251,7 +273,7 @@ export function useDownload() {
         setIsDownloading(false);
       }
     },
-    [getImageResponse, createZipStream, getFileNameFromUrl],
+    [fetchItem, createZipStream, getFileNameFromUrl],
   );
 
   const cancel = useCallback(() => {

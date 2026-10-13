@@ -1,4 +1,5 @@
-import { Button, Modal, Switch, Toast, Input, InputNumber, Tabs, TabPane } from "@douyinfe/semi-ui-19";
+import { Button, Modal, Select, Switch, Toast, Input, InputNumber, Tabs, TabPane } from "@douyinfe/semi-ui-19";
+import { IMAGE_SAVE_FORMATS } from "@/utils/image-convert";
 import { useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 import {
   DIRECTORY_CHANGE_EVENT,
@@ -98,6 +99,7 @@ function SettingModal({ isOpenSetting, onCloseSetting }: SettingModalProps) {
   const zipFilenameTemplate = getSetting("zip_filename_template");
   const createFolder = getSetting("create_folder");
   const convIdSubfolder = getSetting("conv_id_subfolder");
+  const imageSaveFormat = getSetting("image_save_format");
   const enable15sVideo = getSetting("enable_15s_video");
   const downloadByDisplayOrder = getSetting("download_by_display_order");
   const showCaptureNotification = getSetting("show_capture_notification");
@@ -208,6 +210,19 @@ function SettingModal({ isOpenSetting, onCloseSetting }: SettingModalProps) {
                 }
                 description="支持 ${conversation_id}、${date}、${time}，无需填写 .zip"
                 label={zipFilenameTemplate.label}
+              />
+              <SettingRow
+                control={
+                  <Select
+                    aria-label={imageSaveFormat.label}
+                    optionList={IMAGE_SAVE_FORMATS}
+                    style={{ width: 140 }}
+                    value={imageSaveFormat.value}
+                    onChange={(value) => changeSetting(imageSaveFormat, value)}
+                  />
+                }
+                description="无损 WebP 像素不变、体积约减三成；JPEG 更小但有损。转换会让下载变慢，视频不受影响"
+                label={imageSaveFormat.label}
               />
               <SettingRow
                 control={<Switch checked={createFolder.value} onChange={(checked) => changeSetting(createFolder, checked)} />}

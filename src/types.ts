@@ -1,4 +1,4 @@
-export type SettingKey = "show_raw" | "skip_downloaded" | "download_concurrency" | "custom_filename_template" | "zip_filename_template" | "create_folder" | "enable_15s_video" | "download_by_display_order" | "show_capture_notification" | "hide_indicator" | "panel_shortcut" | "auto_select_current_conv" | "auto_load_history" | "conv_id_subfolder";
+export type SettingKey = "show_raw" | "skip_downloaded" | "download_concurrency" | "custom_filename_template" | "zip_filename_template" | "create_folder" | "enable_15s_video" | "download_by_display_order" | "show_capture_notification" | "hide_indicator" | "panel_shortcut" | "auto_select_current_conv" | "auto_load_history" | "conv_id_subfolder" | "image_save_format";
 export type Setting = {
   id?: number;
   key: SettingKey;
@@ -52,6 +52,8 @@ export type DownloadImage = {
   url: string;
   filename: string;
   folder?: string;
+  // 下载后要转成的图片格式，不填则原样保存
+  format?: "webp" | "jpeg";
 };
 
 export type ConvFilter = {

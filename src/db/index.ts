@@ -60,6 +60,11 @@ export const SETTING_DEFAULTS: Setting[] = [
     label: "自定义压缩包文件名",
   },
   {
+    key: "image_save_format",
+    value: "png",
+    label: "图片保存格式",
+  },
+  {
     key: "conv_id_subfolder",
     value: true,
     label: "按对话ID建立子文件夹",

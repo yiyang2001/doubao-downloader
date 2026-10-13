@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { DownloadImage } from "@/types";
-import { saveToDirectory } from "./directory-download";
+import { createIntegrityCheck, saveToDirectory, withRetry } from "./directory-download";
 
 // 内存里的假文件夹，只实现 saveToDirectory 用到的接口
 function fakeDirectory() {
@@ -97,7 +97,7 @@ describe("saveToDirectory", () => {
     const root = fakeDirectory();
     const onError = vi.fn();
     const result = await saveToDirectory(root.handle, [item("a.png"), item("b.png")], {
-      fetchFile: async (url) => {
+      fetchFile: async ({ url }) => {
         if (url.endsWith("b.png")) return response([[1]]);
         return {
           ...response([]),
@@ -105,6 +105,7 @@ describe("saveToDirectory", () => {
         } as unknown as Response;
       },
       onError,
+      retryDelay: 0,
     });
 
     expect(result.failedUrls).toEqual(["https://example.test/a.png"]);
@@ -145,6 +146,85 @@ describe("saveToDirectory", () => {
     expect(root.dirs.get("hello_world")!.files.has("a.png")).toBe(true);
   });
 
+  it("retries a file the server cut short and keeps the complete copy", async () => {
+    const root = fakeDirectory();
+    const signature = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+    const end = [0, 0, 0, 0, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82];
+    const fetchFile = vi
+      .fn()
+      .mockResolvedValueOnce(response([signature, [1, 2, 3]]))
+      .mockResolvedValueOnce(response([signature, [1, 2, 3], end]));
+    const result = await saveToDirectory(root.handle, [item("a.png")], { fetchFile, retryDelay: 0 });
+
+    expect(result.failedUrls).toEqual([]);
+    expect(fetchFile).toHaveBeenCalledTimes(2);
+    expect(root.files.get("a.png")).toHaveLength(3);
+  });
+
+  it("gives up on a transfer that stalls and retries it", async () => {
+    const root = fakeDirectory();
+    const stalled = {
+      ...response([]),
+      body: { getReader: () => ({ read: () => new Promise(() => {}), cancel: async () => {} }) },
+    } as unknown as Response;
+    const fetchFile = vi.fn().mockResolvedValueOnce(stalled).mockResolvedValueOnce(response([[1]]));
+    const retrying: number[] = [];
+    const result = await saveToDirectory(root.handle, [item("a.png")], {
+      fetchFile,
+      retryDelay: 0,
+      timeout: 5,
+      onRetrying: (count) => retrying.push(count),
+    });
+
+    expect(result.failedUrls).toEqual([]);
+    expect(fetchFile).toHaveBeenCalledTimes(2);
+    expect(root.files.has("a.png")).toBe(true);
+    expect(retrying).toEqual([1, 0]);
+  });
+
+  it("does not hold up other files while one is retried in the background", async () => {
+    const root = fakeDirectory();
+    const order: string[] = [];
+    let slowCalls = 0;
+    await saveToDirectory(root.handle, [item("slow.png"), item("b.png"), item("c.png")], {
+      concurrency: 1,
+      retryDelay: 20,
+      fetchFile: async ({ filename }) => {
+        if (filename === "slow.png" && slowCalls++ === 0) throw new Error("network");
+        order.push(filename);
+        return response([[1]]);
+      },
+    });
+    expect(order).toEqual(["b.png", "c.png", "slow.png"]);
+  });
+
+  it("gives up after the retry limit and reports the file as failed", async () => {
+    const root = fakeDirectory();
+    const fetchFile = vi.fn(async () => {
+      throw new Error("network");
+    });
+    const onError = vi.fn();
+    const result = await saveToDirectory(root.handle, [item("a.png")], {
+      fetchFile,
+      retryDelay: 0,
+      maxRetries: 5,
+      onError,
+    });
+
+    expect(fetchFile).toHaveBeenCalledTimes(6);
+    expect(result.failedUrls).toEqual(["https://example.test/a.png"]);
+    expect(onError.mock.calls[0][1].message).toContain("已重试 5 次");
+  });
+
+  it("does not retry a file the server refused", async () => {
+    const root = fakeDirectory();
+    const fetchFile = vi.fn(async () => response([], false));
+    const result = await saveToDirectory(root.handle, [item("a.png")], { fetchFile, retryDelay: 0 });
+
+    expect(fetchFile).toHaveBeenCalledTimes(1);
+    expect(result.failedUrls).toEqual(["https://example.test/a.png"]);
+  });
+
   it("rejects when cancelled", async () => {
     const root = fakeDirectory();
     const controller = new AbortController();
@@ -153,5 +233,38 @@ describe("saveToDirectory", () => {
       saveToDirectory(root.handle, [item("a.png")], { signal: controller.signal, fetchFile: async () => response([[1]]) }),
     ).rejects.toMatchObject({ name: "AbortError" });
     expect(root.files.size).toBe(0);
+  });
+});
+
+describe("createIntegrityCheck", () => {
+  const signature = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+  const end = [0, 0, 0, 0, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82];
+  const feed = (check: ReturnType<typeof createIntegrityCheck>, ...chunks: number[][]) => {
+    chunks.forEach((chunk) => check.update(new Uint8Array(chunk)));
+    return check.isComplete();
+  };
+
+  it("requires a PNG to end with its IEND chunk, however the bytes are split", () => {
+    expect(feed(createIntegrityCheck(), signature, [1, 2], end)).toBe(true);
+    expect(feed(createIntegrityCheck(), signature.slice(0, 3), [...signature.slice(3), 1], end.slice(0, 5), end.slice(5))).toBe(true);
+    expect(feed(createIntegrityCheck(), signature, [1, 2, 3])).toBe(false);
+  });
+
+  it("checks the length when the server reports one and accepts other formats", () => {
+    expect(feed(createIntegrityCheck(3), [1, 2, 3])).toBe(true);
+    expect(feed(createIntegrityCheck(5), [1, 2, 3])).toBe(false);
+    expect(feed(createIntegrityCheck())).toBe(false);
+  });
+});
+
+describe("withRetry", () => {
+  it("retries transient failures but not requests the server rejected", async () => {
+    const flaky = vi.fn().mockRejectedValueOnce(new Error("network")).mockResolvedValueOnce("ok");
+    await expect(withRetry(flaky, { delay: 0 })).resolves.toBe("ok");
+    expect(flaky).toHaveBeenCalledTimes(2);
+
+    const rejected = vi.fn().mockRejectedValue(Object.assign(new Error("403"), { status: 403 }));
+    await expect(withRetry(rejected, { delay: 0 })).rejects.toThrow("403");
+    expect(rejected).toHaveBeenCalledTimes(1);
   });
 });

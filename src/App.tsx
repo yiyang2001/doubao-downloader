@@ -8,6 +8,7 @@ import { ConvFilterContext } from "./context/ConvFilterContext";
 import { useDownload } from "./hooks/use-download";
 import { Button, Notification, Toast, Typography } from "@douyinfe/semi-ui-19";
 import ProgressModal from "./components/ProgressModal";
+import FailedDownloadsModal, { type FailedDownload } from "./components/FailedDownloadsModal";
 import { db, SettingService } from "./db";
 import SettingModal from "./components/SettingModal";
 import { SettingContext } from "./context/SettingContext";
@@ -23,6 +24,12 @@ import { getCurrentConvId, matchesConvScope } from "@/utils/conv-filter";
 import { loadConversationHistory } from "@/utils/load-history";
 import { HistoryContext } from "@/context/HistoryContext";
 import { ensureWritable, getSavedDirectory } from "@/utils/directory-download";
+import {
+  imageSuffix,
+  isWebpLossless,
+  supportsImageConversion,
+  type ImageSaveFormat,
+} from "@/utils/image-convert";
 
 function settingValue<T>(settings: Setting[], key: SettingKey, fallback: T): T {
   return (settings.find((item) => item.key === key)?.value as T | undefined) ?? fallback;
@@ -98,6 +105,15 @@ function App() {
   }, [panelShortcut]);
 
   const { download, cancel, progress, isDownloading } = useDownload();
+  const [failedDownloads, setFailedDownloads] = useState<FailedDownload[]>([]);
+  // 排队下载时多个任务的失败项合并展示
+  const addFailedDownloads = useCallback((failures: FailedDownload[]) => {
+    if (failures.length === 0) return;
+    setFailedDownloads((prev) => {
+      const urls = new Set(failures.map((item) => item.url));
+      return [...prev.filter((item) => !urls.has(item.url)), ...failures];
+    });
+  }, []);
 
   const updateSetting = useCallback((item: Setting) => {
     db.setting
@@ -256,6 +272,15 @@ function App() {
         Toast.error(`没有获得文件夹「${directory.name}」的写入权限，已取消下载`);
         return;
       }
+      let imageFormat = settingValue<ImageSaveFormat>(setting, "image_save_format", "png");
+      if (imageFormat !== "png" && !supportsImageConversion()) {
+        Toast.warning("当前浏览器不支持转换图片格式，本次按原图 PNG 保存");
+        imageFormat = "png";
+      } else if (imageFormat === "webp" && !(await isWebpLossless())) {
+        // 宁可不压缩，也不把有损的结果当成无损保存
+        Toast.warning("当前浏览器无法输出无损 WebP，本次按原图 PNG 保存");
+        imageFormat = "png";
+      }
       const downloadedArray =
         setting.find((item) => item.key === 'skip_downloaded')?.value || false
           ? await db.downloaded.toArray()
@@ -290,10 +315,15 @@ function App() {
         return order ? `${order}-${filename}` : filename;
       };
       const usedNames = new Set<string>();
+      // 下载结束后在失败列表里展示，并用于「重试失败项」
+      const failures: FailedDownload[] = [];
+      const convByUrl = new Map<string, ConvMessage>();
+      const filenameByUrl = new Map<string, string>();
       const toDownloadItem = (
         conv: ConvMessage & { creation: Creation },
         url: string,
         suffix: string,
+        format?: "webp" | "jpeg",
       ) => {
         const folder = convIdSubfolder
           ? buildFolderName(conv.source === "aispace" ? "我的创作" : conv.conversation_id)
@@ -309,13 +339,17 @@ function App() {
           ),
           conv,
         );
+        const uniqueFilename = uniqueName(folder + filename, usedNames).slice(folder.length);
+        convByUrl.set(url, conv);
+        filenameByUrl.set(url, folder + uniqueFilename);
         return {
           conversation_id: conv.conversation_id,
           message_id: conv.message_id,
           key: conv.creation.image.key.replace(/\//g, "_"),
           url,
-          filename: uniqueName(folder + filename, usedNames).slice(folder.length),
+          filename: uniqueFilename,
           folder,
+          format,
         };
       };
 
@@ -350,7 +384,12 @@ function App() {
         )
         .filter(({ value }) => !downloadedUrl.has(value.imageUrl))
         .map(({ value: { conv, imageUrl } }) =>
-          toDownloadItem(conv, imageUrl, "png"),
+          toDownloadItem(
+            conv,
+            imageUrl,
+            imageSuffix(imageFormat),
+            imageFormat === "png" ? undefined : imageFormat,
+          ),
         );
 
       // 构建视频下载列表
@@ -374,11 +413,26 @@ function App() {
       if (failedVideoCount + failedImageCount > 0) {
         Toast.warning(`${failedVideoCount + failedImageCount} 个媒体获取下载地址失败，已跳过`);
       }
+      const noteUnresolved = (results: PromiseSettledResult<unknown>[], convs: ConvMessage[]) => {
+        results.forEach((result, index) => {
+          if (result.status !== "rejected") return;
+          const conv = convs[index];
+          failures.push({
+            url: conv.creation.image.image_ori_raw.url,
+            filename: conv.creation.image.key || conv.message_id,
+            reason: `获取下载地址失败: ${result.reason?.message || result.reason}`,
+            conv,
+          });
+        });
+      };
+      noteUnresolved(imageResults, imageConvs);
+      noteUnresolved(videoResults, videoConvs);
 
       const downloadImages = [...imageDownloads, ...videoDownloads];
 
       if (downloadImages.length === 0) {
         Toast.warning("没有可下载的内容");
+        addFailedDownloads(failures);
         return;
       }
       // 视频缩略图URL，用于面板展示"已下载"标识
@@ -396,7 +450,7 @@ function App() {
         [convName] = convIds;
       }
 
-      download(downloadImages, {
+      await download(downloadImages, {
         directory,
         zipName: buildZipName(
           setting.find((item) => item.key === "zip_filename_template")?.value,
@@ -432,13 +486,23 @@ function App() {
           db.downloaded.bulkAdd(
             [...savedUrls, ...videoThumbnailUrls].map((url) => ({ url })),
           );
+          addFailedDownloads(failures);
         },
         onError(url, error) {
-          Toast.error(`下载失败 ${url}: ${error.message}`);
+          const conv = convByUrl.get(url);
+          if (!conv) return;
+          failures.push({
+            url,
+            filename: filenameByUrl.get(url) || url,
+            reason: error.message,
+            conv,
+          });
+          // 单个文件下载失败时不会走到 onSave
+          if (downloadImages.length === 1) addFailedDownloads(failures);
         },
       });
     },
-    [download, isDownloading, setting, convMessageList],
+    [download, isDownloading, setting, convMessageList, addFailedDownloads],
   );
 
   const handlePlay = useCallback(async (convMessage: ConvMessage) => {
@@ -502,6 +566,15 @@ function App() {
     >
       <Indicator hidden={hideIndicator} onClick={() => setIsOpenMainPanel(!isOpenMainPanel)} />
       <ProgressModal isDownloading={isDownloading} progress={progress} onCancel={cancel} />
+      <FailedDownloadsModal
+        failures={failedDownloads}
+        onClose={() => setFailedDownloads([])}
+        onRetry={() => {
+          const convs = failedDownloads.map((item) => item.conv);
+          setFailedDownloads([]);
+          handleDownload(convs);
+        }}
+      />
       <SettingContext.Provider
         value={{
           setting,
