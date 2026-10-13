@@ -79,15 +79,19 @@ describe("file name helpers", () => {
 
   it("names the zip after the conversation and time", () => {
     const date = new Date(2026, 9, 13, 14, 5, 9);
-    expect(buildZipName(undefined, "123", date)).toBe("豆包下载_123_20261013-140509");
-    expect(buildZipName("", undefined, date)).toBe("豆包下载_20261013-140509");
+    expect(buildZipName(undefined, { conversation_id: "123", title: "画一只猫" }, date)).toBe(
+      "豆包下载_画一只猫_20261013-140509",
+    );
+    expect(buildZipName("", {}, date)).toBe("豆包下载_20261013-140509");
   });
 
   it("names the zip from a custom template", () => {
     const date = new Date(2026, 9, 13, 14, 5, 9);
-    expect(buildZipName("${conversation_id}", "123", date)).toBe("123");
-    expect(buildZipName("${date}_${conversation_id}", "123", date)).toBe("20261013_123");
+    expect(buildZipName("${conversation_id}", { conversation_id: "123" }, date)).toBe("123");
+    expect(buildZipName("${date}_${conversation_id}", { conversation_id: "123" }, date)).toBe(
+      "20261013_123",
+    );
     // 跨会话下载时没有会话ID，模板结果为空则退回默认模板
-    expect(buildZipName("${conversation_id}", undefined, date)).toBe("豆包下载_20261013-140509");
+    expect(buildZipName("${conversation_id}", {}, date)).toBe("豆包下载_20261013-140509");
   });
 });

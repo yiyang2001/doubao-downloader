@@ -23,13 +23,21 @@ describe("conversation options", () => {
   });
 
   it("labels each conversation with its id", () => {
-    const options = buildConvOptions([
+    const messages = [
       withFields({ conversation_id: "123", tts_content: "some prompt" }),
       withFields({ conversation_id: "456", tts_content: undefined as unknown as string }),
-    ]);
-    expect(options).toEqual([
+    ];
+    expect(buildConvOptions(messages, true)).toEqual([
       { id: "123", label: "123" },
       { id: "456", label: "456" },
+    ]);
+    // 默认显示首条消息，没有时退回会话ID
+    expect(buildConvOptions(messages)).toEqual([
+      { id: "123", label: "some prompt" },
+      { id: "456", label: "456" },
+    ]);
+    expect(buildConvOptions([withFields({ conversation_id: "789", index_in_conv: 5 })])).toEqual([
+      { id: "789", label: "789" },
     ]);
   });
 
@@ -40,7 +48,7 @@ describe("conversation options", () => {
       withFields({ conversation_id: "b", source: "aispace" }),
       { ...withFields({ conversation_id: "c" }), creation: undefined } as unknown as ConvMessage,
     ]);
-    expect(options).toEqual([{ id: "a", label: "a" }]);
+    expect(options).toEqual([{ id: "a", label: "first" }]);
   });
 });
 
@@ -52,6 +60,7 @@ describe("conversation search", () => {
     expect(matchesConvSearch("创作", "aispace")).toBe(true);
     expect(matchesConvSearch("所有", "-1")).toBe(true);
     expect(matchesConvSearch("创作", "-1")).toBe(false);
+    expect(matchesConvSearch("cat", "123", undefined, "Draw a Cat")).toBe(true);
   });
 });
 

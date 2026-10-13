@@ -20,7 +20,7 @@ import { filterConvsByMediaType } from "@/utils/media-filter";
 import { filterDeletedConvs } from "@/utils/deleted-media";
 import { getSourceDownloadUrl } from "@/utils/video-url";
 import { useDeletedMediaKeys } from "@/hooks/use-deleted-media-keys";
-import { matchesConvScope } from "@/utils/conv-filter";
+import { getConvTitle, matchesConvScope } from "@/utils/conv-filter";
 import { useHistoryLoader } from "@/hooks/use-history-loader";
 import { useDownloadQueue } from "@/hooks/use-download-queue";
 import { useOnlyCurrentConv } from "@/hooks/use-only-current-conv";
@@ -390,21 +390,24 @@ function App() {
         .filter((r): r is PromiseFulfilledResult<{ conv: ConvMessage & { creation: Creation }; videoUrl: string }> => r.status === "fulfilled")
         .map((r) => r.value);
 
-      // 只涉及一个会话时，zip 以该会话的ID命名
+      // 只涉及一个会话时，zip 名称里可以用该会话的ID和首条消息
       const sources = new Set(validConvs.map((conv) => conv.source));
       const convIds = new Set(validConvs.map((conv) => conv.conversation_id));
       let convName: string | undefined;
+      let convTitle: string | undefined;
       if (sources.size === 1 && sources.has("aispace")) {
         convName = "我的创作";
+        convTitle = convName;
       } else if (convIds.size === 1) {
         [convName] = convIds;
+        convTitle = getConvTitle(convMessageList, convName);
       }
 
       await download(downloadImages, {
         directory,
         zipName: buildZipName(
           setting.find((item) => item.key === "zip_filename_template")?.value,
-          convName,
+          { conversation_id: convName, title: convTitle },
         ),
         onCancel() {
           Toast.info("已取消下载");
@@ -570,6 +573,7 @@ function App() {
               currentConvId: history.currentConvId,
               isLoadingHistory: history.isLoadingHistory,
               toggleLoadHistory: history.toggleLoadHistory,
+              convLabelById: settingValue(setting, "conv_label_by_id", false),
             }}
           >
             <MainPanel

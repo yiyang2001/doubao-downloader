@@ -109,6 +109,7 @@ function SettingModal({ isOpenSetting, onCloseSetting }: SettingModalProps) {
   const autoSelectCurrentConv = getSetting("auto_select_current_conv");
   const autoLoadHistory = getSetting("auto_load_history");
   const onlyCurrentConv = getSetting("only_current_conv");
+  const convLabelById = getSetting("conv_label_by_id");
 
   const customFilenameTemplateLocal = useSetting(customFilenameTemplate, changeSetting);
   const zipFilenameTemplateLocal = useSetting(zipFilenameTemplate, changeSetting);
@@ -131,6 +132,7 @@ function SettingModal({ isOpenSetting, onCloseSetting }: SettingModalProps) {
       visible={isOpenSetting}
       onCancel={handleClose}
       footer={null}
+      width="min(720px, 94vw)"
       getPopupContainer={() =>
         document.getElementById("dd-modal-popup-container") || document.body
       }
@@ -215,7 +217,7 @@ function SettingModal({ isOpenSetting, onCloseSetting }: SettingModalProps) {
                     onChange={zipFilenameTemplateLocal.onChange}
                   />
                 }
-                description="支持 ${conversation_id}、${date}、${time}，无需填写 .zip"
+                description="支持 ${title}（首条消息）、${conversation_id}、${date}、${time}，无需填写 .zip"
                 label={zipFilenameTemplate.label}
               />
               <SettingRow
@@ -251,6 +253,11 @@ function SettingModal({ isOpenSetting, onCloseSetting }: SettingModalProps) {
 
           <TabPane itemKey="general" tab="通用">
             <div className="dd-setting-content">
+              <SettingRow
+                control={<Switch aria-label={convLabelById.label} checked={convLabelById.value} onChange={(checked) => changeSetting(convLabelById, checked)} />}
+                description="面板的对话下拉框用对话ID代替首条消息来显示每个对话"
+                label={convLabelById.label}
+              />
               <SettingRow
                 control={<Switch aria-label={onlyCurrentConv.label} checked={onlyCurrentConv.value} onChange={(checked) => changeSetting(onlyCurrentConv, checked)} />}
                 description="只保留当前所在对话的图片和视频，其它对话和「我的创作」都不捕获；切换对话后会清掉上一个对话的内容"

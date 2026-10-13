@@ -24,11 +24,20 @@ function ActionCard({
 }: ActionCardProps) {
   const { convMessage, handleDownloadAll, handleDownloadSelected } =
     useContext(ConvContext);
-  const convOptions = useMemo(() => buildConvOptions(convMessage), [convMessage]);
   const { showConvId } = useContext(ConvFilterContext);
-  const { currentConvId, isLoadingHistory, toggleLoadHistory } = useContext(HistoryContext);
+  const { currentConvId, isLoadingHistory, toggleLoadHistory, convLabelById } =
+    useContext(HistoryContext);
+  const convOptions = useMemo(
+    () => buildConvOptions(convMessage, convLabelById),
+    [convMessage, convLabelById],
+  );
   // 当前会话即使还没捕获到媒体也要列出来，否则选中它时下拉框没有对应的选项
-  const pinnedConv = currentConvId ? { id: currentConvId, label: currentConvId } : undefined;
+  const pinnedConv = currentConvId
+    ? convOptions.find((item) => item.id === currentConvId) || {
+        id: currentConvId,
+        label: currentConvId,
+      }
+    : undefined;
   const otherConvs = convOptions.filter((item) => item.id !== currentConvId);
 
   return (
@@ -39,10 +48,15 @@ function ActionCard({
           style={{ width: 200 }}
           onChange={(value) => changeConv(value as string)}
           filter={(input, option) =>
-            matchesConvSearch(input, String(option.value), pinnedConv?.id)
+            matchesConvSearch(
+              input,
+              String(option.value),
+              pinnedConv?.id,
+              convOptions.find((item) => item.id === option.value)?.label,
+            )
           }
           searchPosition="dropdown"
-          searchPlaceholder="搜索对话ID"
+          searchPlaceholder="搜索对话"
         >
           {pinnedConv && (
             <Select.Option

@@ -105,6 +105,11 @@ export const SETTING_DEFAULTS: Setting[] = [
     label: "面板快捷键",
   },
   {
+    key: "conv_label_by_id",
+    value: false,
+    label: "对话列表显示对话ID",
+  },
+  {
     key: "only_current_conv",
     value: false,
     label: "只扫描当前对话",

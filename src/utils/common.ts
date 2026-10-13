@@ -72,18 +72,20 @@ export const uniqueName = (name: string, used: Set<string>) => {
   return candidate;
 };
 
-export const DEFAULT_ZIP_NAME_TEMPLATE = "豆包下载_${conversation_id}_${time}";
+// 默认沿用原来的命名：豆包下载_首条消息_时间
+export const DEFAULT_ZIP_NAME_TEMPLATE = "豆包下载_${title}_${time}";
 
-// 模板变量：conversation_id（下载内容跨多个会话时为空）、date、time
+// 模板变量：title（会话首条消息）、conversation_id（下载内容跨多个会话时两者为空）、date、time
 export const buildZipName = (
   template: string | undefined,
-  conversationId?: string,
+  conv: { conversation_id?: string; title?: string } = {},
   date = new Date(),
 ) => {
   const pad = (value: number) => String(value).padStart(2, "0");
   const day = `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}`;
   const data = {
-    conversation_id: conversationId,
+    conversation_id: conv.conversation_id,
+    title: sanitizeFileName(conv.title, 40),
     date: day,
     time: `${day}-${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`,
   };
