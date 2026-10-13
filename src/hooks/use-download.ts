@@ -9,7 +9,7 @@ interface DownloadOptions {
   concurrency?: number;
   onProgress?: (current: number, total: number) => void;
   onError?: (url: string, error: Error) => void;
-  onSave?: () => void;
+  onSave?: (failedUrls: string[]) => void;
 }
 
 export function useDownload() {
@@ -67,9 +67,10 @@ export function useDownload() {
       onProgress: (current: number, total: number) => void,
       onError: (url: string, error: Error) => void,
       signal?: AbortSignal,
-    ): Promise<void> => {
+    ): Promise<string[]> => {
       const total = downloadImageList.length;
       let completed = 0;
+      const failedUrls: string[] = [];
 
       const fileStream = streamSaver.createWriteStream(`${zipName}.zip`);
       const writer = fileStream.getWriter();
@@ -109,6 +110,7 @@ export function useDownload() {
               } catch (error: any) {
                 if (error.name !== "AbortError") {
                   console.error(`下载图片 ${url} 失败:`, error);
+                  failedUrls.push(url);
                   onError(url, error as Error);
                 }
               } finally {
@@ -143,6 +145,7 @@ export function useDownload() {
         }
 
         await writer.close();
+        return failedUrls;
       } catch (error) {
         console.error("读取zip失败:", error);
         await writer.abort();
@@ -193,7 +196,7 @@ export function useDownload() {
             const fileName = downloadImage.filename || getFileNameFromUrl(url);
             saveAs(blob, fileName);
             handleProgress(1, 1);
-            options.onSave?.();
+            options.onSave?.([]);
           } catch (error: any) {
             if (error.name !== "AbortError") {
               onError(url, error as Error);
@@ -202,14 +205,14 @@ export function useDownload() {
           }
         } else {
           // 多张图片打包下载
-          await createZipStream(
+          const failedUrls = await createZipStream(
             downloadImageList,
             "zipName",
             options.concurrency || 5,
             handleProgress,
             onError,
           );
-          options.onSave?.();
+          options.onSave?.(failedUrls);
         }
       } catch (error: any) {
         if (error.name !== "AbortError") {

@@ -305,20 +305,31 @@ function App() {
         return;
       }
       // 视频缩略图URL，用于面板展示"已下载"标识
-      const videoThumbnailUrls = videoResults
+      const fulfilledVideos = videoResults
         .filter((r): r is PromiseFulfilledResult<{ conv: ConvMessage & { creation: Creation }; videoUrl: string }> => r.status === "fulfilled")
-        .map((r) => r.value.conv.creation.image.image_ori_raw.url);
+        .map((r) => r.value);
 
       download(downloadImages, {
         concurrency: setting.find(
           (item) => item.key === "download_concurrency",
         )?.value || 5,
-        onSave() {
-          Toast.success("下载完成");
-          db.downloaded.bulkAdd([
-            ...downloadImages.map((item) => ({ url: item.url })),
-            ...videoThumbnailUrls.map((url) => ({ url })),
-          ]);
+        onSave(failedUrls) {
+          // 下载失败的不记入已下载，否则会被"跳过已下载"永久跳过
+          const failed = new Set(failedUrls);
+          const savedUrls = downloadImages
+            .map((item) => item.url)
+            .filter((url) => !failed.has(url));
+          const videoThumbnailUrls = fulfilledVideos
+            .filter(({ videoUrl }) => !failed.has(videoUrl))
+            .map(({ conv }) => conv.creation.image.image_ori_raw.url);
+          if (failed.size > 0) {
+            Toast.warning(`下载完成，${failed.size} 个失败`);
+          } else {
+            Toast.success("下载完成");
+          }
+          db.downloaded.bulkAdd(
+            [...savedUrls, ...videoThumbnailUrls].map((url) => ({ url })),
+          );
         },
         onError(url, error) {
           Toast.error(`下载失败 ${url}: ${error.message}`);

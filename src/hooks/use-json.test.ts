@@ -73,6 +73,33 @@ describe("aispace creation extraction", () => {
   });
 });
 
+describe("JSON.parse hook safety", () => {
+  it("keeps native behavior for revivers and non-string input", () => {
+    const { unmount } = renderHook(() => useJson({ callback: vi.fn() }));
+
+    expect(
+      JSON.parse('{"a":1}', (_key, value) =>
+        typeof value === "number" ? value + 1 : value,
+      ),
+    ).toEqual({ a: 2 });
+    expect(JSON.parse(123 as unknown as string)).toBe(123);
+    expect(JSON.parse(null as unknown as string)).toBeNull();
+    unmount();
+  });
+
+  it("returns parsed data when extraction throws", () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const callback = vi.fn();
+    const { unmount } = renderHook(() => useJson({ callback }));
+    const text = '{"messages":[null],"note":"creations"}';
+
+    expect(JSON.parse(text)).toEqual({ messages: [null], note: "creations" });
+    expect(callback).not.toHaveBeenCalled();
+    expect(console.warn).toHaveBeenCalled();
+    unmount();
+  });
+});
+
 describe("conversation rich media extraction", () => {
   it("captures video resources from downlink messages by vid without using download_url", () => {
     const callback = vi.fn();

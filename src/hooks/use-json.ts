@@ -231,15 +231,14 @@ export function useJson({
       );
       return _stringify(value, replacer, space);
     }) as typeof JSON.stringify;
-    JSON.parse = function (text: string) {
-      let jsonData = _parse(text);
+    const capture = (text: string, jsonData: any) => {
       const aispaceChildren = jsonData?.data?.children;
       const isAispace = isAispaceResponse(jsonData);
       if (
         !text.includes("creations") &&
         !text.includes("rich_media_layout_block") &&
         !isAispace
-      ) return jsonData;
+      ) return;
       let messageList = findAllKeysInJson(jsonData, "messages");
       const newConv: ConvMessage[] = [];
       if (isAispace) {
@@ -304,6 +303,19 @@ export function useJson({
         );
       }
       callback(newConv);
+    };
+    JSON.parse = function (
+      text: string,
+      reviver?: (this: any, key: string, value: any) => any,
+    ) {
+      const jsonData = _parse(text, reviver);
+      if (typeof text !== "string") return jsonData;
+      // 提取失败不能影响页面自身的 JSON.parse
+      try {
+        capture(text, jsonData);
+      } catch (error) {
+        console.warn("豆包下载器: 解析响应失败", error);
+      }
       return jsonData;
     };
     return () => {
