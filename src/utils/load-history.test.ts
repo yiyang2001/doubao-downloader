@@ -16,7 +16,7 @@ const fakeScroller = (pages: number) => {
 };
 
 describe("loadConversationHistory", () => {
-  it("keeps scrolling to the top until nothing new loads, then returns to the bottom", async () => {
+  it("keeps scrolling to the top until nothing new loads and stays there", async () => {
     const { scroller, wait } = fakeScroller(3);
     const result = await loadConversationHistory({
       getCapturedCount: () => 0,
@@ -26,7 +26,7 @@ describe("loadConversationHistory", () => {
     });
     expect(result).toBe("done");
     expect(scroller.scrollHeight).toBe(4000);
-    expect(scroller.scrollTop).toBe(4000);
+    expect(scroller.scrollTop).toBe(0);
   });
 
   it("stops when aborted", async () => {
@@ -61,6 +61,7 @@ describe("findIndexRailDriver", () => {
       <aside><div><div id="rail" style="overflow-y: auto"><div>
         <button data-index-entry-key="a"></button>
         <button data-index-entry-key="b"></button>
+        <button data-index-entry-key="c"></button>
       </div></div></div></aside>`;
     const rail = document.getElementById("rail")!;
     const clicked: string[] = [];
@@ -69,15 +70,22 @@ describe("findIndexRailDriver", () => {
     });
 
     const driver = findIndexRailDriver()!;
-    expect(driver.size()).toBe(2);
     rail.scrollTop = 50;
     driver.step(0);
     expect(rail.scrollTop).toBe(0);
-    expect(clicked).toEqual([]);
-    // 滚动没有带出新内容时跳到最早的一条，结束后回到最新的一条
-    driver.step(2);
-    driver.finish();
-    expect(clicked).toEqual(["a", "b"]);
+    expect(clicked).toEqual(["a"]);
+    // 最早的一条没变时不重复点，长时间没进展才再点一次
+    driver.step(1);
+    expect(clicked).toEqual(["a"]);
+    driver.step(3);
+    expect(clicked).toEqual(["a", "a"]);
+
+    // 索引条加载出更早的条目后算作进展，并立刻点新的最早一条
+    const before = driver.size();
+    rail.firstElementChild!.insertAdjacentHTML("afterbegin", '<button data-index-entry-key="z"></button>');
+    expect(driver.size()).not.toBe(before);
+    driver.step(0);
+    expect(clicked).toEqual(["a", "a", "z"]);
     document.body.innerHTML = "";
   });
 
