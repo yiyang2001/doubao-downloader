@@ -1,9 +1,120 @@
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { extractAispaceCreations, isAispaceResponse, useJson } from "./use-json";
+import {
+  extractAispaceCreations,
+  installJsonHook,
+  isAispaceResponse,
+  uninstallJsonHook,
+  useJson,
+} from "./use-json";
 
 afterEach(() => {
+  uninstallJsonHook();
+  localStorage.clear();
   vi.restoreAllMocks();
+});
+
+const historyResponse = (messageId: string) =>
+  JSON.stringify({
+    messages: [
+      {
+        conversation_id: "conversation-1",
+        message_id: messageId,
+        index_in_conv: "2",
+        create_time: "100",
+        bot_reply_message_id: "reply-1",
+        tts_content: "reply",
+        creations: [
+          {
+            image: {
+              key: `${messageId}-key`,
+              image_ori_raw: { url: "https://example.test/raw.png" },
+              image_thumb: { url: "https://example.test/watermarked.png" },
+            },
+          },
+        ],
+      },
+    ],
+  });
+
+describe("early hook installation", () => {
+  it("buffers messages captured before React mounts", () => {
+    installJsonHook();
+    JSON.parse(historyResponse("early-message"));
+
+    const callback = vi.fn();
+    const { unmount } = renderHook(() => useJson({ callback }));
+
+    expect(callback).toHaveBeenCalledTimes(1);
+    expect(callback.mock.calls[0][0]).toEqual([
+      expect.objectContaining({
+        message_id: "early-message",
+        creation: expect.objectContaining({ creation_type: "image" }),
+      }),
+    ]);
+    unmount();
+  });
+
+  it("keeps the hook installed when settings change and applies them", () => {
+    const callback = vi.fn();
+    const { rerender, unmount } = renderHook(
+      ({ showRaw }: { showRaw?: boolean }) => useJson({ callback, showRaw }),
+      { initialProps: { showRaw: false } as { showRaw?: boolean } },
+    );
+    const installedParse = JSON.parse;
+
+    const untouched = JSON.parse(historyResponse("message-a"));
+    expect(untouched.messages[0].creations[0].image.image_thumb.url).toBe(
+      "https://example.test/watermarked.png",
+    );
+
+    rerender({ showRaw: true });
+    expect(JSON.parse).toBe(installedParse);
+    const replaced = JSON.parse(historyResponse("message-b"));
+    expect(replaced.messages[0].creations[0].image.image_thumb.url).toBe(
+      "https://example.test/raw.png",
+    );
+    unmount();
+  });
+
+  it("remembers show_raw across page loads until settings are loaded", () => {
+    const first = renderHook(() => useJson({ callback: vi.fn(), showRaw: false }));
+    first.unmount();
+    uninstallJsonHook();
+
+    installJsonHook();
+    const parsed = JSON.parse(historyResponse("message-c"));
+    expect(parsed.messages[0].creations[0].image.image_thumb.url).toBe(
+      "https://example.test/watermarked.png",
+    );
+  });
+
+  it("gives realtime messages a creation time", () => {
+    const callback = vi.fn();
+    const { unmount } = renderHook(() => useJson({ callback }));
+
+    act(() => {
+      JSON.parse(
+        JSON.stringify({
+          message_id: "realtime-message",
+          conversation_id: "conversation-9",
+          creations: [
+            {
+              image: {
+                key: "realtime-key",
+                image_ori_raw: { url: "https://example.test/realtime.png" },
+              },
+            },
+          ],
+        }),
+      );
+    });
+
+    const [message] = callback.mock.calls[0][0];
+    expect(message.conversation_id).toBe("conversation-9");
+    expect(Number.isFinite(message.create_time)).toBe(true);
+    unmount();
+  });
 });
 
 describe("aispace creation extraction", () => {

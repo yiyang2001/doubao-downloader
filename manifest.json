@@ -20,7 +20,7 @@
     {
       "matches": ["https://www.doubao.com/chat/*", "https://www.dola.com/chat/*"],
       "js": ["doubao-downloader.user.js"],
-      "run_at": "document_end",
+      "run_at": "document_start",
       "world": "MAIN"
     }
   ],

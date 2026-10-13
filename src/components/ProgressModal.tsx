@@ -1,4 +1,4 @@
-import { Modal, Progress } from "@douyinfe/semi-ui-19";
+import { Button, Modal, Progress } from "@douyinfe/semi-ui-19";
 
 interface ProgressModalProps {
   isDownloading: boolean;
@@ -7,9 +7,10 @@ interface ProgressModalProps {
     total: number;
     percentage: number;
   };
+  onCancel?: () => void;
 }
 
-function ProgressModal({ isDownloading, progress }: ProgressModalProps) {
+function ProgressModal({ isDownloading, progress, onCancel }: ProgressModalProps) {
   const strokeArr = [
     { percent: 0, color: "rgb(249, 57, 32)" },
     { percent: 50, color: "#46259E" },
@@ -23,7 +24,13 @@ function ProgressModal({ isDownloading, progress }: ProgressModalProps) {
         visible={isDownloading}
         closable={false}
         closeOnEsc={false}
-        footer={null}
+        footer={
+          onCancel ? (
+            <Button type="danger" onClick={onCancel}>
+              取消下载
+            </Button>
+          ) : null
+        }
         maskClosable={false}
         getPopupContainer={() =>
           document.getElementById("dd-modal-popup-container") || document.body

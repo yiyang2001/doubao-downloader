@@ -208,119 +208,219 @@ export function isAispaceResponse(data: any): boolean {
   );
 }
 
+const SHOW_RAW_CACHE_KEY = "doubao-downloader:show_raw";
+const ENABLE_15S_VIDEO_CACHE_KEY = "doubao-downloader:enable_15s_video";
+
+function readCachedSetting(key: string, fallback: boolean) {
+  try {
+    const cached = localStorage.getItem(key);
+    return cached === null ? fallback : cached === "true";
+  } catch {
+    return fallback;
+  }
+}
+
+function writeCachedSetting(key: string, value: boolean) {
+  try {
+    localStorage.setItem(key, String(value));
+  } catch {
+    // localStorage 不可用时只是下次启动用默认值
+  }
+}
+
+// 钩子在脚本启动时安装一次，状态放在模块级，React 挂载后再接管回调和设置
+const hook = {
+  installed: false,
+  showRaw: true,
+  enable15sVideo: false,
+  onUpdateVideoDurationSuccess: undefined as (() => void) | undefined,
+  onUpdateVideoDurationError: undefined as ((error: unknown) => void) | undefined,
+  listener: undefined as ((messages: ConvMessage[]) => void) | undefined,
+  // React 挂载前捕获到的消息
+  pending: [] as ConvMessage[],
+  messageIds: new Set<string>(),
+  aispaceNodeIds: new Set<string>(),
+};
+
+function emit(messages: ConvMessage[]) {
+  if (hook.listener) {
+    hook.listener(messages);
+  } else {
+    hook.pending.push(...messages);
+  }
+}
+
+function getConversationIdFromUrl() {
+  return window.location.pathname.match(/\/chat\/(\d+)/)?.[1];
+}
+
+function capture(text: string, jsonData: any) {
+  const showRaw = hook.showRaw;
+  const aispaceChildren = jsonData?.data?.children;
+  const isAispace = isAispaceResponse(jsonData);
+  if (
+    !text.includes("creations") &&
+    !text.includes("rich_media_layout_block") &&
+    !isAispace
+  ) return;
+  let messageList = findAllKeysInJson(jsonData, "messages");
+  const newConv: ConvMessage[] = [];
+  if (isAispace) {
+    const newChildren = aispaceChildren.filter((child: any) => {
+      const nodeId = String(child?.id || "");
+      if (!nodeId || hook.aispaceNodeIds.has(nodeId)) return false;
+      hook.aispaceNodeIds.add(nodeId);
+      return true;
+    });
+    newConv.push(...extractAispaceCreations(newChildren));
+  } else if (messageList.length === 0 && jsonData.message_id) {
+    // 实时对话
+    const message_id = jsonData.message_id;
+    let creations = findAllKeysInJson(jsonData, "creations");
+    if (creations.length > 0) {
+      // 实时消息不带会话信息，会话ID取自响应或当前地址，时间取当前时间
+      const conversation_id =
+        jsonData.conversation_id || getConversationIdFromUrl();
+      const baseInfo: Partial<ConvMessage> = {
+        message_id,
+        source: "conversation",
+        create_time: Date.now(),
+      };
+      if (conversation_id) baseInfo.conversation_id = String(conversation_id);
+      const extracted = extractCreations({
+        creationsArray: creations,
+        baseInfo,
+        showRaw,
+      });
+      newConv.push(...extracted);
+    }
+  } else {
+    messageList.map((messages) =>
+      messages.map((message: any) => {
+        // 消息ID
+        let creationList = findAllKeysInJson(message, "creations");
+        const message_id = message.message_id;
+        if (!hook.messageIds.has(message_id)) {
+          hook.messageIds.add(message_id);
+
+          const baseInfo: Partial<ConvMessage> = {
+            source: "conversation",
+            index_in_conv: Number(message.index_in_conv),
+            bot_reply_message_id: message.bot_reply_message_id,
+            tts_content: extractTtsContentText(message.tts_content),
+            conversation_id: message.conversation_id,
+            message_id,
+            create_time: message.create_time * 1000,
+          };
+          if (creationList.length > 0) {
+            const extracted = extractCreations({
+              creationsArray: creationList,
+              baseInfo,
+              showRaw,
+            });
+            newConv.push(...extracted);
+          }
+          const richMediaVideos = extractRichMediaVideos(message);
+          newConv.push(...richMediaVideos);
+          if (creationList.length === 0 && richMediaVideos.length === 0) {
+            newConv.push(baseInfo as ConvMessage);
+          }
+        } else {
+          // 显示原图
+          extractCreations({
+            creationsArray: creationList,
+            showRaw,
+          });
+        }
+      }),
+    );
+  }
+  emit(newConv);
+}
+
+/** Patch JSON.parse / JSON.stringify once. Safe to call repeatedly. */
+export function installJsonHook() {
+  if (hook.installed) return;
+  hook.installed = true;
+  hook.showRaw = readCachedSetting(SHOW_RAW_CACHE_KEY, true);
+  hook.enable15sVideo = readCachedSetting(ENABLE_15S_VIDEO_CACHE_KEY, false);
+
+  const _parse = JSON.parse;
+  const _stringify = JSON.stringify;
+  window.origin_parse = JSON.parse;
+  window.origin_stringify = JSON.stringify;
+  JSON.stringify = ((value: any, replacer?: any, space?: any) => {
+    updateVideoDuration(
+      value,
+      hook.enable15sVideo,
+      hook.onUpdateVideoDurationSuccess,
+      hook.onUpdateVideoDurationError,
+    );
+    return _stringify(value, replacer, space);
+  }) as typeof JSON.stringify;
+  JSON.parse = function (
+    text: string,
+    reviver?: (this: any, key: string, value: any) => any,
+  ) {
+    const jsonData = _parse(text, reviver);
+    if (typeof text !== "string") return jsonData;
+    // 提取失败不能影响页面自身的 JSON.parse
+    try {
+      capture(text, jsonData);
+    } catch (error) {
+      console.warn("豆包下载器: 解析响应失败", error);
+    }
+    return jsonData;
+  };
+}
+
+/** Restore the native functions and forget captured state. Used by tests. */
+export function uninstallJsonHook() {
+  if (!hook.installed) return;
+  JSON.parse = window.origin_parse;
+  JSON.stringify = window.origin_stringify;
+  hook.installed = false;
+  hook.listener = undefined;
+  hook.onUpdateVideoDurationSuccess = undefined;
+  hook.onUpdateVideoDurationError = undefined;
+  hook.pending = [];
+  hook.messageIds.clear();
+  hook.aispaceNodeIds.clear();
+}
+
 export function useJson({
-  showRaw = true,
-  enable15sVideo = true,
+  showRaw,
+  enable15sVideo,
   onUpdateVideoDurationSuccess,
   onUpdateVideoDurationError,
   callback,
 }: UseJsonProps) {
-  const prevMessageIds = useRef<Set<string>>(new Set());
-  const prevAispaceNodeIds = useRef<Set<string>>(new Set());
-  useEffect(() => {
-    const _parse = JSON.parse;
-    const _stringify = JSON.stringify;
-    window.origin_parse = JSON.parse;
-    window.origin_stringify = JSON.stringify;
-    JSON.stringify = ((value: any, replacer?: any, space?: any) => {
-      updateVideoDuration(
-        value,
-        enable15sVideo,
-        onUpdateVideoDurationSuccess,
-        onUpdateVideoDurationError,
-      );
-      return _stringify(value, replacer, space);
-    }) as typeof JSON.stringify;
-    const capture = (text: string, jsonData: any) => {
-      const aispaceChildren = jsonData?.data?.children;
-      const isAispace = isAispaceResponse(jsonData);
-      if (
-        !text.includes("creations") &&
-        !text.includes("rich_media_layout_block") &&
-        !isAispace
-      ) return;
-      let messageList = findAllKeysInJson(jsonData, "messages");
-      const newConv: ConvMessage[] = [];
-      if (isAispace) {
-        const newChildren = aispaceChildren.filter((child: any) => {
-          const nodeId = String(child?.id || "");
-          if (!nodeId || prevAispaceNodeIds.current.has(nodeId)) return false;
-          prevAispaceNodeIds.current.add(nodeId);
-          return true;
-        });
-        newConv.push(...extractAispaceCreations(newChildren));
-      } else if (messageList.length === 0 && jsonData.message_id) {
-        // 实时对话
-        const message_id = jsonData.message_id;
-        let creations = findAllKeysInJson(jsonData, "creations");
-        if (creations.length > 0) {
-          const extracted = extractCreations({
-            creationsArray: creations,
-            baseInfo: { message_id, source: "conversation" },
-            showRaw,
-          });
-          newConv.push(...extracted);
-        }
-      } else {
-        messageList.map((messages) =>
-          messages.map((message: any) => {
-            // 消息ID
-            let creationList = findAllKeysInJson(message, "creations");
-            const message_id = message.message_id;
-            if (!prevMessageIds.current.has(message_id)) {
-              prevMessageIds.current.add(message_id);
+  const callbackRef = useRef(callback);
+  callbackRef.current = callback;
 
-              const baseInfo: Partial<ConvMessage> = {
-                source: "conversation",
-                index_in_conv: Number(message.index_in_conv),
-                bot_reply_message_id: message.bot_reply_message_id,
-                tts_content: extractTtsContentText(message.tts_content),
-                conversation_id: message.conversation_id,
-                message_id,
-                create_time: message.create_time * 1000,
-              };
-              if (creationList.length > 0) {
-                const extracted = extractCreations({
-                  creationsArray: creationList,
-                  baseInfo,
-                  showRaw,
-                });
-                newConv.push(...extracted);
-              }
-              const richMediaVideos = extractRichMediaVideos(message);
-              newConv.push(...richMediaVideos);
-              if (creationList.length === 0 && richMediaVideos.length === 0) {
-                newConv.push(baseInfo as ConvMessage);
-              }
-            } else {
-              // 显示原图
-              extractCreations({
-                creationsArray: creationList,
-                showRaw,
-              });
-            }
-          }),
-        );
-      }
-      callback(newConv);
-    };
-    JSON.parse = function (
-      text: string,
-      reviver?: (this: any, key: string, value: any) => any,
-    ) {
-      const jsonData = _parse(text, reviver);
-      if (typeof text !== "string") return jsonData;
-      // 提取失败不能影响页面自身的 JSON.parse
-      try {
-        capture(text, jsonData);
-      } catch (error) {
-        console.warn("豆包下载器: 解析响应失败", error);
-      }
-      return jsonData;
-    };
+  useEffect(() => {
+    installJsonHook();
+    const listener = (messages: ConvMessage[]) => callbackRef.current(messages);
+    hook.listener = listener;
+    const pending = hook.pending.splice(0);
+    if (pending.length > 0) listener(pending);
     return () => {
-      JSON.parse = window.origin_parse;
-      JSON.stringify = window.origin_stringify;
+      if (hook.listener === listener) hook.listener = undefined;
     };
+  }, []);
+
+  // 设置未加载完成时为 undefined，此时沿用上次缓存的值
+  useEffect(() => {
+    if (showRaw !== undefined) {
+      hook.showRaw = showRaw;
+      writeCachedSetting(SHOW_RAW_CACHE_KEY, showRaw);
+    }
+    if (enable15sVideo !== undefined) {
+      hook.enable15sVideo = enable15sVideo;
+      writeCachedSetting(ENABLE_15S_VIDEO_CACHE_KEY, enable15sVideo);
+    }
+    hook.onUpdateVideoDurationSuccess = onUpdateVideoDurationSuccess;
+    hook.onUpdateVideoDurationError = onUpdateVideoDurationError;
   }, [showRaw, enable15sVideo, onUpdateVideoDurationSuccess, onUpdateVideoDurationError]);
 }
+

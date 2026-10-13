@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import pLimit from "p-limit";
 import streamSaver from "streamsaver";
 import saveAs from "file-saver";
@@ -7,9 +7,15 @@ import type { DownloadImage, ZipWriter } from "@/types";
 
 interface DownloadOptions {
   concurrency?: number;
+  zipName?: string;
   onProgress?: (current: number, total: number) => void;
   onError?: (url: string, error: Error) => void;
   onSave?: (failedUrls: string[]) => void;
+  onCancel?: () => void;
+}
+
+function createAbortError() {
+  return new DOMException("下载已取消", "AbortError");
 }
 
 export function useDownload() {
@@ -20,6 +26,7 @@ export function useDownload() {
     percentage: 0,
   });
   const [error, setError] = useState<Error | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   const getFileNameFromUrl = useCallback((url: string): string => {
     try {
@@ -33,12 +40,13 @@ export function useDownload() {
   }, []);
 
   const getImageResponse = useCallback(
-    async (url: string): Promise<Response> => {
+    async (url: string, signal?: AbortSignal): Promise<Response> => {
       try {
         const response = await fetch(url, {
           method: "GET",
           mode: "cors",
           cache: "no-store",
+          signal,
         });
 
         if (!response.ok) {
@@ -49,9 +57,7 @@ export function useDownload() {
 
         return response;
       } catch (error: any) {
-        if (error.name === "AbortError") {
-          throw new Error("下载已取消");
-        }
+        if (signal?.aborted) throw createAbortError();
         console.error(`下载图片 ${url} 失败:`, error);
         throw error;
       }
@@ -72,13 +78,13 @@ export function useDownload() {
       let completed = 0;
       const failedUrls: string[] = [];
 
-      const fileStream = streamSaver.createWriteStream(`${zipName}.zip`);
-      const writer = fileStream.getWriter();
-
       if (concurrency < 1 || concurrency > 32) {
         onError("", new Error("并发数量必须在1到32之间"));
         throw new Error("并发数量必须在1到32之间");
       }
+
+      const fileStream = streamSaver.createWriteStream(`${zipName}.zip`);
+      const writer = fileStream.getWriter();
 
       const zipReadableStream = window.ZIP({
         async start(zipWriter: ZipWriter) {
@@ -86,73 +92,71 @@ export function useDownload() {
 
           const downloadPromises = downloadImageList.map((downloadImage) =>
             limit(async () => {
-              // 检查是否已取消
-              if (signal?.aborted) {
-                throw new Error("下载已取消");
-              }
+              if (signal?.aborted) return;
               const { url, folder } = downloadImage;
 
               try {
-                const res = await getImageResponse(url);
-                if (!res.ok) {
-                  throw new Error(`下载失败: ${res.status} ${res.statusText}`);
-                }
+                const res = await getImageResponse(url, signal);
                 const stream = () =>
                   res.body as ReadableStream<Uint8Array<ArrayBuffer>>;
                 let fileName = downloadImage.filename || getFileNameFromUrl(url);
 
                 zipWriter.enqueue({
-                  name: folder + fileName,
+                  name: (folder || "") + fileName,
                   lastModified: Date.now(),
                   directory: false,
                   stream: stream,
                 });
               } catch (error: any) {
-                if (error.name !== "AbortError") {
-                  console.error(`下载图片 ${url} 失败:`, error);
-                  failedUrls.push(url);
-                  onError(url, error as Error);
-                }
+                if (signal?.aborted) return;
+                console.error(`下载图片 ${url} 失败:`, error);
+                failedUrls.push(url);
+                onError(url, error as Error);
               } finally {
-                completed++;
-                onProgress(completed, total);
+                if (!signal?.aborted) {
+                  completed++;
+                  onProgress(completed, total);
+                }
               }
             }),
           );
 
-          try {
-            await Promise.all(downloadPromises);
-            zipWriter.close();
-          } catch (error: any) {
-            if (error.name !== "AbortError") {
-              throw error;
-            }
-          }
+          await Promise.all(downloadPromises);
+          if (!signal?.aborted) zipWriter.close();
         },
       });
 
-      try {
-        const reader = zipReadableStream.getReader();
-        while (true) {
-          // 检查是否已取消
-          if (signal?.aborted) {
-            throw new Error("下载已取消");
-          }
+      const reader = zipReadableStream.getReader();
+      let removeAbortListener = () => {};
+      // 取消时即使某个文件卡住不返回数据，也能立刻跳出读取循环
+      const aborted = new Promise<never>((_, reject) => {
+        if (!signal) return;
+        const onAbort = () => reject(createAbortError());
+        if (signal.aborted) return onAbort();
+        signal.addEventListener("abort", onAbort, { once: true });
+        removeAbortListener = () => signal.removeEventListener("abort", onAbort);
+      });
+      aborted.catch(() => {});
 
-          const { done, value } = await reader.read();
+      try {
+        while (true) {
+          const { done, value } = await Promise.race([reader.read(), aborted]);
           if (done) break;
-          await writer.write(value);
+          await Promise.race([writer.write(value), aborted]);
         }
 
         await writer.close();
         return failedUrls;
       } catch (error) {
-        console.error("读取zip失败:", error);
-        await writer.abort();
+        if (!signal?.aborted) console.error("读取zip失败:", error);
+        reader.cancel().catch(() => {});
+        await writer.abort().catch(() => {});
         throw error;
+      } finally {
+        removeAbortListener();
       }
     },
-    [getFileNameFromUrl],
+    [getImageResponse, getFileNameFromUrl],
   );
 
   const download = useCallback(
@@ -177,6 +181,10 @@ export function useDownload() {
         return;
       }
 
+      const abortController = new AbortController();
+      abortControllerRef.current = abortController;
+      const { signal } = abortController;
+
       try {
         // 合并进度回调
         const handleProgress = (current: number, total: number) => {
@@ -191,43 +199,52 @@ export function useDownload() {
           const downloadImage = downloadImageList[0];
           const url = downloadImage.url;
           try {
-            const response = await getImageResponse(url);
+            const response = await getImageResponse(url, signal);
             const blob = await response.blob();
             const fileName = downloadImage.filename || getFileNameFromUrl(url);
             saveAs(blob, fileName);
             handleProgress(1, 1);
             options.onSave?.([]);
           } catch (error: any) {
-            if (error.name !== "AbortError") {
-              onError(url, error as Error);
-              throw error;
-            }
+            if (!signal.aborted) onError(url, error as Error);
+            throw error;
           }
         } else {
           // 多张图片打包下载
           const failedUrls = await createZipStream(
             downloadImageList,
-            "zipName",
+            options.zipName || "豆包下载",
             options.concurrency || 5,
             handleProgress,
             onError,
+            signal,
           );
           options.onSave?.(failedUrls);
         }
       } catch (error: any) {
-        if (error.name !== "AbortError") {
+        if (signal.aborted) {
+          options.onCancel?.();
+        } else {
           console.error("下载失败:", error);
           setError(error as Error);
         }
       } finally {
+        if (abortControllerRef.current === abortController) {
+          abortControllerRef.current = null;
+        }
         setIsDownloading(false);
       }
     },
     [getImageResponse, createZipStream, getFileNameFromUrl],
   );
 
+  const cancel = useCallback(() => {
+    abortControllerRef.current?.abort();
+  }, []);
+
   return {
     download,
+    cancel,
     isDownloading,
     progress,
     error,

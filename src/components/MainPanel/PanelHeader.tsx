@@ -7,7 +7,11 @@ import {
 } from "@douyinfe/semi-icons";
 import { useIsMobile } from "@/hooks/use-mobile";
 import ActionCard from "./ActionCard";
-import { useCheckVersion } from "@/hooks/use-check-version";
+import {
+  LATEST_RELEASE_URL,
+  REPO_URL,
+  useCheckVersion,
+} from "@/hooks/use-check-version";
 import type { MediaCounts } from "@/utils/media-filter";
 import type { MediaType } from "@/types";
 
@@ -46,10 +50,7 @@ function PanelHeader({
               type="solid"
               gradient
               onClick={() =>
-                window.open(
-                  "https://github.com/lauzzl/doubao-downloader/releases/latest",
-                  "_blank"
-                )
+                window.open(LATEST_RELEASE_URL, "_blank")
               }
             >
               有新版本
@@ -63,9 +64,7 @@ function PanelHeader({
               type="tertiary"
               size="small"
               icon={<IconGithubLogo />}
-              onClick={() =>
-                window.open("https://github.com/lauzzl/doubao-downloader")
-              }
+              onClick={() => window.open(REPO_URL)}
             >
               {isMobile ? "" : "Source Code"}
             </Button>

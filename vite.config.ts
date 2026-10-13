@@ -19,6 +19,7 @@ export default defineConfig({
         icon: "https://lf-flow-web-cdn.doubao.com/obj/flow-doubao/doubao/chat/static/image/logo-icon-white-bg.72df0b1a.png",
         namespace: "npm/vite-plugin-monkey",
         match: ["https://www.doubao.com/chat/*", "https://www.dola.com/chat/*"],
+        "run-at": "document-start",
       },
     }),
     viteStaticCopy({

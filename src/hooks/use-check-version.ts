@@ -1,10 +1,15 @@
 import { NewVersionData } from "@/types";
 import { useEffect, useState } from "react";
 
+export const REPO_URL = "https://github.com/yiyang2001/doubao-downloader";
+export const LATEST_RELEASE_URL = `${REPO_URL}/releases/latest`;
+const LATEST_RELEASE_API =
+  "https://api.github.com/repos/yiyang2001/doubao-downloader/releases/latest";
+
 const getLatestRelease = async () => {
-  const response = await fetch(
-    "https://api.github.com/repos/lauzzl/doubao-downloader/releases/latest",
-  );
+  const response = await fetch(LATEST_RELEASE_API);
+  // 仓库还没有发布过 release 时返回 404
+  if (!response.ok) return null;
   const data = await response.json();
   return data;
 };
@@ -34,6 +39,7 @@ export const useCheckVersion = () => {
   useEffect(() => {
     getLatestRelease()
       .then((data) => {
+        if (typeof data?.tag_name !== "string") return;
         const latestVersion = data.tag_name.replace("v", "");
         const isNewVer = isNewVersion(__APP_VERSION__, latestVersion) || false;
         setNewVersion({

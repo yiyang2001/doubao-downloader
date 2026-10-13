@@ -12,7 +12,7 @@ import { db, SettingService } from "./db";
 import SettingModal from "./components/SettingModal";
 import { SettingContext } from "./context/SettingContext";
 import { useLiveQuery } from "dexie-react-hooks";
-import { completeSuffix, replaceTemplate } from "./utils/common";
+import { buildFileName, buildFolderName, buildZipName, uniqueName } from "./utils/common";
 import { getVideoUrl } from "@/api/video";
 import { matchesShortcut } from "@/utils/shortcut";
 import { filterConvsByMediaType } from "@/utils/media-filter";
@@ -93,7 +93,7 @@ function App() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [panelShortcut]);
 
-  const { download, progress, isDownloading } = useDownload();
+  const { download, cancel, progress, isDownloading } = useDownload();
 
   const updateSetting = useCallback((item: Setting) => {
     db.setting
@@ -116,10 +116,10 @@ function App() {
   }, []);
 
   useJson({
-    showRaw:
-      setting.find((item: Setting) => item.key === "show_raw")?.value ?? false,
+    // 设置加载完成前为 undefined，钩子沿用上次缓存的值
+    showRaw: setting.find((item: Setting) => item.key === "show_raw")?.value,
     enable15sVideo:
-      setting.find((item: Setting) => item.key === "enable_15s_video")?.value ?? false,
+      setting.find((item: Setting) => item.key === "enable_15s_video")?.value,
     onUpdateVideoDurationSuccess: handleUpdateVideoDurationSuccess,
     onUpdateVideoDurationError: handleUpdateVideoDurationError,
     callback: (convMessages: ConvMessage[]) => {
@@ -217,6 +217,33 @@ function App() {
         const order = displayOrderMap.get(conv.creation.image.key);
         return order ? `${order}-${filename}` : filename;
       };
+      const usedNames = new Set<string>();
+      const toDownloadItem = (
+        conv: ConvMessage & { creation: Creation },
+        url: string,
+        suffix: string,
+      ) => {
+        const folder = createFolder
+          ? buildFolderName(conv.tts_content, conv.conversation_id)
+          : "";
+        const filename = withDisplayOrder(
+          buildFileName(
+            customFilenameTemplate,
+            conv,
+            suffix,
+            conv.creation.image.key || conv.message_id,
+          ),
+          conv,
+        );
+        return {
+          conversation_id: conv.conversation_id,
+          message_id: conv.message_id,
+          key: conv.creation.image.key.replace(/\//g, "_"),
+          url,
+          filename: uniqueName(folder + filename, usedNames).slice(folder.length),
+          folder,
+        };
+      };
 
       const imageConvs = validConvs.filter(
         (conv) => conv.creation.creation_type === "image",
@@ -248,20 +275,9 @@ function App() {
           }> => result.status === "fulfilled",
         )
         .filter(({ value }) => !downloadedUrl.has(value.imageUrl))
-        .map(({ value: { conv, imageUrl } }) => ({
-          conversation_id: conv.conversation_id,
-          message_id: conv.message_id,
-          key: conv.creation.image.key.replace(/\//g, "_"),
-          url: imageUrl,
-          filename: withDisplayOrder(
-            completeSuffix(
-              replaceTemplate(customFilenameTemplate, conv),
-              "png",
-            ).replace(/\//g, "_"),
-            conv,
-          ),
-          folder: createFolder ? conv.tts_content + "/" : "",
-        }));
+        .map(({ value: { conv, imageUrl } }) =>
+          toDownloadItem(conv, imageUrl, "png"),
+        );
 
       // 构建视频下载列表
       const videoDownloads: typeof imageDownloads = [];
@@ -269,20 +285,7 @@ function App() {
         if (result.status === "fulfilled") {
           const { conv, videoUrl } = result.value;
           if (!downloadedUrl.has(videoUrl)) {
-            videoDownloads.push({
-              conversation_id: conv.conversation_id,
-              message_id: conv.message_id,
-              key: conv.creation.image.key.replace(/\//g, "_"),
-              url: videoUrl,
-              filename: withDisplayOrder(
-                completeSuffix(
-                  replaceTemplate(customFilenameTemplate, conv),
-                  "mp4",
-                ).replace(/\//g, "_"),
-                conv,
-              ),
-              folder: createFolder ? conv.tts_content + "/" : "",
-            });
+            videoDownloads.push(toDownloadItem(conv, videoUrl, "mp4"));
           }
         }
       });
@@ -309,7 +312,27 @@ function App() {
         .filter((r): r is PromiseFulfilledResult<{ conv: ConvMessage & { creation: Creation }; videoUrl: string }> => r.status === "fulfilled")
         .map((r) => r.value);
 
+      // 只涉及一个会话时，zip 以该会话的首条消息命名
+      const sources = new Set(validConvs.map((conv) => conv.source));
+      const convIds = new Set(validConvs.map((conv) => conv.conversation_id));
+      let convName: string | undefined;
+      if (sources.size === 1 && sources.has("aispace")) {
+        convName = "我的创作";
+      } else if (convIds.size === 1) {
+        const [convId] = convIds;
+        convName = convMessageList.find(
+          (conv) =>
+            conv.source !== "aispace" &&
+            conv.conversation_id === convId &&
+            conv.index_in_conv === 1,
+        )?.tts_content;
+      }
+
       download(downloadImages, {
+        zipName: buildZipName(convName),
+        onCancel() {
+          Toast.info("已取消下载");
+        },
         concurrency: setting.find(
           (item) => item.key === "download_concurrency",
         )?.value || 5,
@@ -336,7 +359,7 @@ function App() {
         },
       });
     },
-    [download, isDownloading, setting],
+    [download, isDownloading, setting, convMessageList],
   );
 
   const handlePlay = useCallback(async (convMessage: ConvMessage) => {
@@ -399,7 +422,7 @@ function App() {
       className="dd:bg-background dd:text-foreground dd:h-0"
     >
       <Indicator hidden={hideIndicator} onClick={() => setIsOpenMainPanel(!isOpenMainPanel)} />
-      <ProgressModal isDownloading={isDownloading} progress={progress} />
+      <ProgressModal isDownloading={isDownloading} progress={progress} onCancel={cancel} />
       <SettingContext.Provider
         value={{
           setting,
