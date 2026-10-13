@@ -1,4 +1,4 @@
-export type SettingKey = "show_raw" | "skip_downloaded" | "download_concurrency" | "custom_filename_template" | "create_folder" | "enable_15s_video" | "download_by_display_order" | "show_capture_notification" | "hide_indicator" | "panel_shortcut";
+export type SettingKey = "show_raw" | "skip_downloaded" | "download_concurrency" | "custom_filename_template" | "zip_filename_template" | "create_folder" | "enable_15s_video" | "download_by_display_order" | "show_capture_notification" | "hide_indicator" | "panel_shortcut";
 export type Setting = {
   id?: number;
   key: SettingKey;

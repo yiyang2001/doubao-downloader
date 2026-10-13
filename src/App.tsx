@@ -312,24 +312,21 @@ function App() {
         .filter((r): r is PromiseFulfilledResult<{ conv: ConvMessage & { creation: Creation }; videoUrl: string }> => r.status === "fulfilled")
         .map((r) => r.value);
 
-      // 只涉及一个会话时，zip 以该会话的首条消息命名
+      // 只涉及一个会话时，zip 以该会话的ID命名
       const sources = new Set(validConvs.map((conv) => conv.source));
       const convIds = new Set(validConvs.map((conv) => conv.conversation_id));
       let convName: string | undefined;
       if (sources.size === 1 && sources.has("aispace")) {
         convName = "我的创作";
       } else if (convIds.size === 1) {
-        const [convId] = convIds;
-        convName = convMessageList.find(
-          (conv) =>
-            conv.source !== "aispace" &&
-            conv.conversation_id === convId &&
-            conv.index_in_conv === 1,
-        )?.tts_content;
+        [convName] = convIds;
       }
 
       download(downloadImages, {
-        zipName: buildZipName(convName),
+        zipName: buildZipName(
+          setting.find((item) => item.key === "zip_filename_template")?.value,
+          convName,
+        ),
         onCancel() {
           Toast.info("已取消下载");
         },

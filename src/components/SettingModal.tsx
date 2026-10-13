@@ -52,6 +52,7 @@ function SettingModal({ isOpenSetting, onCloseSetting }: SettingModalProps) {
   const skipDownloaded = getSetting("skip_downloaded");
   const downloadConcurrency = getSetting("download_concurrency");
   const customFilenameTemplate = getSetting("custom_filename_template");
+  const zipFilenameTemplate = getSetting("zip_filename_template");
   const createFolder = getSetting("create_folder");
   const enable15sVideo = getSetting("enable_15s_video");
   const downloadByDisplayOrder = getSetting("download_by_display_order");
@@ -60,12 +61,14 @@ function SettingModal({ isOpenSetting, onCloseSetting }: SettingModalProps) {
   const panelShortcut = getSetting("panel_shortcut");
 
   const customFilenameTemplateLocal = useSetting(customFilenameTemplate, changeSetting);
+  const zipFilenameTemplateLocal = useSetting(zipFilenameTemplate, changeSetting);
   const downloadConcurrencyLocal = useSetting(downloadConcurrency, changeSetting);
   const panelShortcutLocal = useSetting(panelShortcut, changeSetting);
 
 
   const handleClose = () => {
     customFilenameTemplateLocal.flush();
+    zipFilenameTemplateLocal.flush();
     downloadConcurrencyLocal.flush();
     panelShortcutLocal.flush();
     onCloseSetting();
@@ -136,6 +139,19 @@ function SettingModal({ isOpenSetting, onCloseSetting }: SettingModalProps) {
                 }
                 description="支持会话、消息和图片索引等变量"
                 label={customFilenameTemplate.label}
+              />
+              <SettingRow
+                control={
+                  <Input
+                    aria-label={zipFilenameTemplate.label}
+                    className="dd-setting-template-input"
+                    placeholder="请输入压缩包文件名模板，为空则使用默认模板"
+                    value={zipFilenameTemplateLocal.value}
+                    onChange={zipFilenameTemplateLocal.onChange}
+                  />
+                }
+                description="支持 ${conversation_id}、${date}、${time}，无需填写 .zip"
+                label={zipFilenameTemplate.label}
               />
               <SettingRow
                 control={<Switch checked={createFolder.value} onChange={(checked) => changeSetting(createFolder, checked)} />}

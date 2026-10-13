@@ -36,6 +36,7 @@ const settings: Setting[] = [
   { key: "skip_downloaded", value: true, label: "跳过已下载的图片" },
   { key: "download_concurrency", value: 5, label: "下载图片并发数" },
   { key: "custom_filename_template", value: "template", label: "自定义图片文件名" },
+  { key: "zip_filename_template", value: "zip-template", label: "自定义压缩包文件名" },
   { key: "create_folder", value: false, label: "为会话创建文件夹" },
   { key: "enable_15s_video", value: true, label: "开启15秒视频" },
   { key: "download_by_display_order", value: false, label: "按展示顺序下载" },
@@ -116,6 +117,23 @@ describe("SettingModal", () => {
 
     expect(updateSetting).toHaveBeenCalledWith(
       expect.objectContaining({ key: "custom_filename_template", value: "updated-template" }),
+    );
+  });
+
+  it("flushes the zip filename template before closing", () => {
+    const updateSetting = vi.fn();
+
+    render(
+      <SettingContext.Provider value={{ setting: settings, updateSetting }}>
+        <SettingModal isOpenSetting onCloseSetting={vi.fn()} />
+      </SettingContext.Provider>,
+    );
+
+    fireEvent.change(screen.getByDisplayValue("zip-template"), { target: { value: "${conversation_id}" } });
+    fireEvent.click(screen.getByRole("button", { name: "关闭设置" }));
+
+    expect(updateSetting).toHaveBeenCalledWith(
+      expect.objectContaining({ key: "zip_filename_template", value: "${conversation_id}" }),
     );
   });
 });

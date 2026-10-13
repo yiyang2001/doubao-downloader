@@ -68,12 +68,23 @@ export const uniqueName = (name: string, used: Set<string>) => {
   return candidate;
 };
 
-export const buildZipName = (convName?: string, date = new Date()) => {
+export const DEFAULT_ZIP_NAME_TEMPLATE = "豆包下载_${conversation_id}_${time}";
+
+// 模板变量：conversation_id（下载内容跨多个会话时为空）、date、time
+export const buildZipName = (
+  template: string | undefined,
+  conversationId?: string,
+  date = new Date(),
+) => {
   const pad = (value: number) => String(value).padStart(2, "0");
-  const timestamp =
-    `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}` +
-    `-${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`;
-  return ["豆包下载", sanitizeFileName(convName, 40), timestamp]
-    .filter(Boolean)
-    .join("_");
+  const day = `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}`;
+  const data = {
+    conversation_id: conversationId,
+    date: day,
+    time: `${day}-${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`,
+  };
+  return (
+    sanitizeFileName(replaceTemplate(template?.trim() || DEFAULT_ZIP_NAME_TEMPLATE, data), 150) ||
+    sanitizeFileName(replaceTemplate(DEFAULT_ZIP_NAME_TEMPLATE, data), 150)
+  );
 };

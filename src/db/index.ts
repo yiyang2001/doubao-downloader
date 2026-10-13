@@ -1,5 +1,6 @@
 import type { DeletedMedia, Setting } from "@/types";
 import Dexie, { type EntityTable } from "dexie";
+import { DEFAULT_ZIP_NAME_TEMPLATE } from "@/utils/common";
 
 const DB_NAME = "DouBaoDownloader";
 
@@ -52,6 +53,11 @@ export const SETTING_DEFAULTS: Setting[] = [
     key: "custom_filename_template",
     value: '${conversation_id}_${message_id}_${index_in_conv}_${creation.image.key}',
     label: "自定义图片文件名",
+  },
+  {
+    key: "zip_filename_template",
+    value: DEFAULT_ZIP_NAME_TEMPLATE,
+    label: "自定义压缩包文件名",
   },
   {
     key: "create_folder",

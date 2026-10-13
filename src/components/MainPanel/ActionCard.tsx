@@ -1,9 +1,14 @@
 import { ConvContext } from "@/context/ConvContext";
 import { Button, Card, DatePicker, Radio, RadioGroup, Select, Space } from "@douyinfe/semi-ui-19";
-import { memo, useContext, useMemo } from "react";
+import { memo, useContext, useMemo, useState } from "react";
 import type { MediaCounts } from "@/utils/media-filter";
 import type { MediaType } from "@/types";
-import { AISPACE_FILTER } from "@/utils/conv-filter";
+import {
+  AISPACE_FILTER,
+  buildConvOptions,
+  getCurrentConvId,
+  matchesConvSearch,
+} from "@/utils/conv-filter";
 
 interface ActionCardProps {
   changeConv: (convId: string) => void;
@@ -22,11 +27,12 @@ function ActionCard({
 }: ActionCardProps) {
   const { convMessage, handleDownloadAll, handleDownloadSelected } =
     useContext(ConvContext);
-  const convMessageList = useMemo(
-    () => convMessage.filter((item) => item.source !== "aispace" && item.index_in_conv === 1),
-    [convMessage],
-  );
+  const convOptions = useMemo(() => buildConvOptions(convMessage), [convMessage]);
   const defaultSelected = "-1";
+  // 页面内切换会话不会重新挂载面板，展开下拉框时重新读取一次
+  const [currentConvId, setCurrentConvId] = useState(getCurrentConvId);
+  const pinnedConv = convOptions.find((item) => item.id === currentConvId);
+  const otherConvs = convOptions.filter((item) => item !== pinnedConv);
 
   return (
     <Card>
@@ -35,20 +41,37 @@ function ActionCard({
           defaultValue={defaultSelected}
           style={{ width: 200 }}
           onChange={(value) => changeConv(value as string)}
+          filter={(input, option) =>
+            matchesConvSearch(input, String(option.value), pinnedConv?.id)
+          }
+          searchPosition="dropdown"
+          searchPlaceholder="搜索对话ID"
+          onDropdownVisibleChange={(visible) => {
+            if (visible) setCurrentConvId(getCurrentConvId());
+          }}
         >
+          {pinnedConv && (
+            <Select.Option
+              className="dd:justify-start! dd:sticky dd:top-0 dd:z-1 dd:bg-(--semi-color-bg-3)!"
+              key={pinnedConv.id}
+              value={pinnedConv.id}
+            >
+              当前对话 {pinnedConv.label}
+            </Select.Option>
+          )}
           <Select.Option className="dd:justify-start!" key="-1" value="-1">
             所有对话
           </Select.Option>
           <Select.Option className="dd:justify-start!" key={AISPACE_FILTER} value={AISPACE_FILTER}>
             我的创作
           </Select.Option>
-          {convMessageList.map((item) => (
+          {otherConvs.map((item) => (
             <Select.Option
               className="dd:justify-start!"
-              key={item.conversation_id}
-              value={item.conversation_id}
+              key={item.id}
+              value={item.id}
             >
-              {item.tts_content}
+              {item.label}
             </Select.Option>
           ))}
         </Select>
