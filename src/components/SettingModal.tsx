@@ -96,6 +96,7 @@ function SettingModal({ isOpenSetting, onCloseSetting }: SettingModalProps) {
   const skipDownloaded = getSetting("skip_downloaded");
   const downloadConcurrency = getSetting("download_concurrency");
   const queueDownloads = getSetting("queue_downloads");
+  const batchDownload = getSetting("batch_download");
   const customFilenameTemplate = getSetting("custom_filename_template");
   const zipFilenameTemplate = getSetting("zip_filename_template");
   const createFolder = getSetting("create_folder");
@@ -160,6 +161,11 @@ function SettingModal({ isOpenSetting, onCloseSetting }: SettingModalProps) {
                 control={<Switch checked={downloadByDisplayOrder.value} onChange={(checked) => changeSetting(downloadByDisplayOrder, checked)} />}
                 description="按当前列表从上到下的顺序写入文件"
                 label={downloadByDisplayOrder.label}
+              />
+              <SettingRow
+                control={<Switch aria-label={batchDownload.label} checked={batchDownload.value} onChange={(checked) => changeSetting(batchDownload, checked)} />}
+                description="在面板上显示「从当前对话批量下载」：依次加载每个对话的历史并全部下载，然后自动打开侧边栏里的下一个对话"
+                label={batchDownload.label}
               />
               <SettingRow
                 control={<Switch aria-label={queueDownloads.label} checked={queueDownloads.value} onChange={(checked) => changeSetting(queueDownloads, checked)} />}

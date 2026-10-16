@@ -25,7 +25,7 @@ function ActionCard({
   const { convMessage, handleDownloadAll, handleDownloadSelected } =
     useContext(ConvContext);
   const { showConvId } = useContext(ConvFilterContext);
-  const { currentConvId, isLoadingHistory, toggleLoadHistory, convLabelById } =
+  const { currentConvId, isLoadingHistory, toggleLoadHistory, convLabelById, batchDownload } =
     useContext(HistoryContext);
   const convOptions = useMemo(
     () => buildConvOptions(convMessage, convLabelById),
@@ -114,6 +114,14 @@ function ActionCard({
           >
             {isLoadingHistory ? "停止加载" : "加载更早的消息"}
           </Button>
+          {batchDownload && (
+            <Button
+              onClick={batchDownload.isRunning ? batchDownload.stop : batchDownload.start}
+              type="tertiary"
+            >
+              {batchDownload.isRunning ? "停止批量下载" : "从当前对话批量下载"}
+            </Button>
+          )}
           <Button onClick={handleDownloadSelected} type="tertiary">下载选中</Button>
           <Button onClick={handleDownloadAll} type="tertiary">全部下载</Button>
         </Space>

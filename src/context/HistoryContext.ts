@@ -8,6 +8,8 @@ export interface HistoryContextProps {
   toggleLoadHistory: () => void;
   // 对话下拉框是否以会话ID显示（默认显示首条消息）
   convLabelById?: boolean;
+  // 批量下载：未开启设置时为 undefined，面板上不显示入口
+  batchDownload?: { isRunning: boolean; start: () => void; stop: () => void };
 }
 
 export const HistoryContext = createContext<HistoryContextProps>({

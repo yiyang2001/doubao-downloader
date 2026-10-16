@@ -1,7 +1,7 @@
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import { Toast } from "@douyinfe/semi-ui-19";
 import { getCurrentConvId } from "@/utils/conv-filter";
-import { loadConversationHistory } from "@/utils/load-history";
+import { loadConversationHistory, type LoadHistoryResult } from "@/utils/load-history";
 
 interface UseHistoryLoaderProps {
   isPanelOpen: boolean;
@@ -32,7 +32,7 @@ export function useHistoryLoader({
   const optionsRef = useRef({ autoSelect, autoLoad, onSelectConv });
   optionsRef.current = { autoSelect, autoLoad, onSelectConv };
 
-  const start = useCallback(async (convId: string) => {
+  const start = useCallback(async (convId: string): Promise<LoadHistoryResult | undefined> => {
     loaderRef.current?.abort();
     const controller = new AbortController();
     loaderRef.current = controller;
@@ -44,7 +44,8 @@ export function useHistoryLoader({
       getCapturedCount: () => mediaCountRef.current,
       keepGoing: () => getCurrentConvId() === convId,
     });
-    if (loaderRef.current !== controller) return;
+    // 被新的加载顶替时，结果交给新的那次
+    if (loaderRef.current !== controller) return undefined;
     loaderRef.current = undefined;
     setIsLoadingHistory(false);
     if (result === "no-scroller") {
@@ -52,7 +53,10 @@ export function useHistoryLoader({
     } else if (result === "done") {
       Toast.success(`已加载到对话开头，新增 ${mediaCountRef.current - before} 个媒体`);
     }
+    return result;
   }, []);
+
+  const stop = useCallback(() => loaderRef.current?.abort(), []);
 
   const toggleLoadHistory = useCallback(() => {
     if (loaderRef.current) {
@@ -82,6 +86,9 @@ export function useHistoryLoader({
     currentConvId,
     isLoadingHistory,
     toggleLoadHistory,
+    /** 加载指定会话的历史，加载结束后返回 */
+    load: start,
+    stop,
     /** 是否正在加载历史，供不随渲染更新的回调读取 */
     loaderRef,
   };

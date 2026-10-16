@@ -24,6 +24,8 @@ import { getConvTitle, matchesConvScope } from "@/utils/conv-filter";
 import { useHistoryLoader } from "@/hooks/use-history-loader";
 import { useDownloadQueue } from "@/hooks/use-download-queue";
 import { useOnlyCurrentConv } from "@/hooks/use-only-current-conv";
+import { useBatchDownload } from "@/hooks/use-batch-download";
+import BatchDownloadWidget from "./components/BatchDownloadWidget";
 import { HistoryContext } from "@/context/HistoryContext";
 import { ensureWritable, getSavedDirectory } from "@/utils/directory-download";
 import {
@@ -482,8 +484,11 @@ function App() {
     Toast.success("已从面板移除");
   }, []);
 
-  const handleDownloadAll = useCallback(() => {
-    const selectConv = convFilter.showConvId;
+  // 「全部下载」要下载的内容；批量下载在异步流程里调用，所以读最新的状态
+  const latestRef = useRef({ convMessageList, convFilter, deletedKeys });
+  latestRef.current = { convMessageList, convFilter, deletedKeys };
+  const collectDownloadAll = useCallback((selectConv: string) => {
+    const { convMessageList, convFilter, deletedKeys } = latestRef.current;
     const scopedConvs = convMessageList.filter((conv) => {
       if (!conv.creation || !matchesConvScope(conv, selectConv)) return false;
       if (convFilter.startTime && conv.create_time < convFilter.startTime) return false;
@@ -491,9 +496,28 @@ function App() {
       return true;
     });
     const visibleConvs = filterDeletedConvs(scopedConvs, deletedKeys);
-    const downloadConv = filterConvsByMediaType(visibleConvs, convFilter.mediaType);
-    handleDownload(downloadConv);
-  }, [convMessageList, convFilter, deletedKeys, handleDownload]);
+    return filterConvsByMediaType(visibleConvs, convFilter.mediaType);
+  }, []);
+
+  const handleDownloadAll = useCallback(() => {
+    handleDownload(collectDownloadAll(convFilter.showConvId));
+  }, [convFilter, collectDownloadAll, handleDownload]);
+
+  const batch = useBatchDownload({
+    loadHistory: history.load,
+    stopHistory: history.stop,
+    collect: collectDownloadAll,
+    download: handleDownload,
+    isDownloadBusy: downloadQueue.isBusy,
+    cancelDownload: cancel,
+    onSelectConv: (convId) =>
+      setConvFilter((prev) => ({ ...prev, showConvId: convId, currentPage: 1 })),
+  });
+  const startBatch = useCallback(() => {
+    // 关掉面板，让页面切换对话的过程可见；进度看左下角的小窗
+    setIsOpenMainPanel(false);
+    batch.start();
+  }, [batch.start]);
 
   const handleDownloadSelected = useCallback(() => {
     handleDownload(
@@ -535,6 +559,7 @@ function App() {
         onClearQueue={downloadQueue.clear}
         onRemoveQueued={downloadQueue.remove}
       />
+      <BatchDownloadWidget state={batch.state} onStop={batch.stop} />
       <FailedDownloadsModal
         failures={failedDownloads}
         onClose={() => setFailedDownloads([])}
@@ -574,6 +599,9 @@ function App() {
               isLoadingHistory: history.isLoadingHistory,
               toggleLoadHistory: history.toggleLoadHistory,
               convLabelById: settingValue(setting, "conv_label_by_id", false),
+              batchDownload: settingValue(setting, "batch_download", false) || batch.isRunning
+                ? { isRunning: batch.isRunning, start: startBatch, stop: batch.stop }
+                : undefined,
             }}
           >
             <MainPanel

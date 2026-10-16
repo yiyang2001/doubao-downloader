@@ -76,6 +76,7 @@ describe("SettingModal", () => {
     expect(SETTING_DEFAULTS.find((item) => item.key === "only_current_conv")?.value).toBe(false);
     expect(SETTING_DEFAULTS.find((item) => item.key === "queue_downloads")?.value).toBe(false);
     expect(SETTING_DEFAULTS.find((item) => item.key === "conv_label_by_id")?.value).toBe(false);
+    expect(SETTING_DEFAULTS.find((item) => item.key === "batch_download")?.value).toBe(false);
   });
 
   it("flushes the custom panel shortcut before closing", () => {

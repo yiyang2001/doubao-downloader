@@ -45,6 +45,11 @@ export const SETTING_DEFAULTS: Setting[] = [
     label: "跳过已下载的图片",
   },
   {
+    key: "batch_download",
+    value: false,
+    label: "批量下载对话",
+  },
+  {
     key: "queue_downloads",
     value: false,
     label: "排队下载",

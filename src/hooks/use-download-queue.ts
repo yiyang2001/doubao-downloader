@@ -86,5 +86,7 @@ export function useDownloadQueue(
     sync();
   }, []);
 
-  return { start, current, queue, clear, remove };
+  const isBusy = useCallback(() => busyRef.current, []);
+
+  return { start, current, queue, clear, remove, isBusy };
 }
